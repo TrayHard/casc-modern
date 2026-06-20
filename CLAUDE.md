@@ -61,6 +61,16 @@ cargo run -p casc-cli --quiet -- <subcommand>   # `casc info|list|extract|cat`
 
 ### Release
 
+**Every release must update `CHANGELOG.md` before building.** Add a new
+`## [x.y.z] - YYYY-MM-DD` section at the top (above the previous version) in the
+Keep a Changelog format already in the file — `### Added` / `### Changed` /
+`### Fixed` bullets covering the user-visible changes — and add the matching
+`[x.y.z]: …/releases/tag/vx.y.z` link reference at the bottom. This is **not
+optional**: the release tooling embeds `CHANGELOG.md` into the updater manifest
+(`latest.json`'s `notes`), and the app parses it to show users what changed and
+how many releases they skipped. Keep the version in `CHANGELOG.md`,
+`package.json`, `src-tauri/tauri.conf.json`, and `Cargo.toml` in lockstep.
+
 Producing a **signed, auto-updatable** release is a maintainer-only flow that
 depends on the private updater key (kept outside the repo) — it is **not** part
 of the public repository. Maintainers: see `nogit/CLAUDE.release.md` for the

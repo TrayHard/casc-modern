@@ -153,6 +153,8 @@ export function SearchDrawer({ open, onClose, onNavigate }: Props) {
       }
       width={640}
       destroyOnClose={false}
+      closable={false}
+      extra={<Button icon={<CloseOutlined />} onClick={onClose} />}
     >
       <Tabs
         activeKey={tab}
@@ -337,11 +339,6 @@ export function SearchDrawer({ open, onClose, onNavigate }: Props) {
             ),
           },
         ]}
-      />
-      <Button
-        icon={<CloseOutlined />}
-        onClick={onClose}
-        style={{ position: "absolute", top: 16, right: 60 }}
       />
     </Drawer>
   );

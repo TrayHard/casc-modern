@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Layout, Space, Statistic, Typography, message } from "antd";
 import { FolderOpenOutlined, SearchOutlined } from "@ant-design/icons";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { getVersion } from "@tauri-apps/api/app";
 import { api, errMsg, Bookmark, OpenResult, Settings, basename } from "./lib/api";
 import { Selection } from "./lib/selection";
 import { StorageTree } from "./components/StorageTree";
@@ -40,6 +41,11 @@ export default function App() {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<CtxMenuState | null>(null);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => setAppVersion(null));
+  }, []);
 
   const refreshSettings = useCallback(() => {
     api.getSettings().then(setSettings).catch(() => setSettings(null));
@@ -119,10 +125,17 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const cmd = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
+      const isFind = (cmd && k === "f") || e.key === "F3";
       // Ctrl/Cmd+F (find), Ctrl+G (find next), F3 / Shift+F3 — all open or
       // navigate the WebView2 Find Bar by default. Block all of them.
-      if ((cmd && (k === "f" || k === "g")) || e.key === "F3") {
+      if (isFind || (cmd && k === "g")) {
         e.preventDefault();
+      }
+      // With a text-like file open, CodeViewer captures Ctrl+F / F3 for its
+      // in-viewer search (it mounts a `.cm-editor`). Otherwise there's nothing
+      // to search in place, so fall back to opening the global Search panel.
+      if (isFind && !document.querySelector(".cm-editor")) {
+        setSearchOpen(true);
       }
     };
     // Capture phase on window: runs before any descendant listener AND
@@ -246,6 +259,14 @@ export default function App() {
           </Text>
         )}
         <div style={{ flex: 1 }} />
+        {appVersion && (
+          <Text
+            title="Installed version"
+            style={{ color: "#888", fontVariantNumeric: "tabular-nums" }}
+          >
+            v{appVersion}
+          </Text>
+        )}
         <UpdateButton />
         {opened && (
           <Space size={24}>

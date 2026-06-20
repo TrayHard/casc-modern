@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Button, Modal, Progress, Tooltip, message } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import { Badge, Button, Modal, Popover, Progress, Tooltip, message } from "antd";
 import {
   CheckCircleOutlined,
   CloudDownloadOutlined,
@@ -8,7 +8,8 @@ import {
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { api } from "../lib/api";
+import { api, errMsg } from "../lib/api";
+import { entriesNewerThan, parseChangelog } from "../lib/changelog";
 
 /// 20 minutes — slow enough not to hammer GitHub, frequent enough that
 /// the user usually sees a fresh release within minutes of starting work.
@@ -49,6 +50,18 @@ export function UpdateButton() {
     };
   }, []);
 
+  // The release manifest embeds the changelog in its `notes`, so we can show
+  // exactly what changed since the running version and how many releases the
+  // user skipped.
+  const newer = useMemo(() => {
+    if (!pending?.body) return [];
+    try {
+      return entriesNewerThan(parseChangelog(pending.body), pending.currentVersion);
+    } catch {
+      return [];
+    }
+  }, [pending]);
+
   async function install() {
     if (installing || !pending) return;
     setInstalling(true);
@@ -68,7 +81,7 @@ export function UpdateButton() {
       });
       await relaunch();
     } catch (e) {
-      message.error(`Update failed: ${e}`);
+      message.error(`Update failed: ${errMsg(e)}`);
       setInstalling(false);
     }
   }
@@ -77,7 +90,7 @@ export function UpdateButton() {
     try {
       await openUrl(RELEASES_URL);
     } catch (e) {
-      message.error(`Open failed: ${e}`);
+      message.error(`Open failed: ${errMsg(e)}`);
     }
   }
 
@@ -98,41 +111,80 @@ export function UpdateButton() {
     );
   }
 
+  const changelog = (
+    <div style={{ maxWidth: 380, maxHeight: 340, overflowY: "auto" }}>
+      <div style={{ fontWeight: 600, marginBottom: 8 }}>
+        {newer.length > 1
+          ? `${newer.length} updates available`
+          : `Update available — v${pending.version}`}
+        {pending.currentVersion && (
+          <span style={{ fontWeight: 400, opacity: 0.65 }}>
+            {"  "}(you're on v{pending.currentVersion})
+          </span>
+        )}
+      </div>
+      {newer.length > 0 ? (
+        newer.map((e) => (
+          <div key={e.version} style={{ marginBottom: 10 }}>
+            <div style={{ fontWeight: 600 }}>
+              v{e.version}
+              {e.date ? ` — ${e.date}` : ""}
+            </div>
+            <div
+              style={{
+                whiteSpace: "pre-wrap",
+                fontSize: 12,
+                opacity: 0.88,
+                marginTop: 2,
+              }}
+            >
+              {e.body}
+            </div>
+          </div>
+        ))
+      ) : (
+        <div style={{ whiteSpace: "pre-wrap", fontSize: 12, opacity: 0.88 }}>
+          {pending.body || `Version ${pending.version} is available.`}
+        </div>
+      )}
+      {!installed && (
+        <div style={{ marginTop: 8, opacity: 0.7, fontSize: 12 }}>
+          Portable build can't auto-update — click to download manually.
+        </div>
+      )}
+    </div>
+  );
+
   // Portable .exe path: the updater would install the MSI alongside the
   // running portable binary and leave the user with two parallel copies.
   // Surface a button that just opens the releases page so they pick the
   // right artifact themselves.
   if (!installed) {
     return (
-      <Tooltip
-        title={`Update available (v${pending.version}). Portable build can't auto-update — click to download manually.`}
-        placement="bottom"
-      >
-        <Button
-          icon={<CloudDownloadOutlined />}
-          onClick={openReleases}
-        >
-          Update available
-        </Button>
-      </Tooltip>
+      <Popover content={changelog} placement="bottomRight" mouseLeaveDelay={0.3}>
+        <Badge count={newer.length > 1 ? newer.length : 0} size="small">
+          <Button icon={<CloudDownloadOutlined />} onClick={openReleases}>
+            Update available
+          </Button>
+        </Badge>
+      </Popover>
     );
   }
 
   return (
     <>
-      <Tooltip
-        title={`Update available (v${pending.version}). Click to install.`}
-        placement="bottom"
-      >
-        <Button
-          type="primary"
-          icon={installing ? <LoadingOutlined /> : <CloudDownloadOutlined />}
-          onClick={install}
-          disabled={installing}
-        >
-          Update
-        </Button>
-      </Tooltip>
+      <Popover content={changelog} placement="bottomRight" mouseLeaveDelay={0.3}>
+        <Badge count={newer.length > 1 ? newer.length : 0} size="small">
+          <Button
+            type="primary"
+            icon={installing ? <LoadingOutlined /> : <CloudDownloadOutlined />}
+            onClick={install}
+            disabled={installing}
+          >
+            Update
+          </Button>
+        </Badge>
+      </Popover>
       <Modal
         open={installing}
         title="Installing update…"
