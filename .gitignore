@@ -1,0 +1,12 @@
+target/
+node_modules/
+dist/
+.DS_Store
+*.log
+.env
+.vscode/
+.idea/
+src-tauri/Cargo.lock
+nogit/
+dev.bat
+releases/

@@ -1,0 +1,19 @@
+[package]
+name = "casc-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "casc"
+path = "src/main.rs"
+
+[dependencies]
+casc-core = { path = "../casc-core" }
+clap = { workspace = true }
+anyhow = { workspace = true }
+indicatif = { workspace = true }
+rayon = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
