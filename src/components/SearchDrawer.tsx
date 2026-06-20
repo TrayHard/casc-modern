@@ -14,6 +14,7 @@ import {
   Typography,
   message,
 } from "antd";
+import type { InputRef } from "antd";
 import {
   CloseOutlined,
   FileSearchOutlined,
@@ -41,6 +42,16 @@ interface Props {
 
 export function SearchDrawer({ open, onClose, onNavigate }: Props) {
   const [tab, setTab] = useState<"name" | "content">("name");
+  const nameInputRef = useRef<InputRef>(null);
+
+  // Focus the query field when the panel opens (or returns to the name tab) so
+  // Ctrl+F lands the cursor ready to type. Deferred past the Drawer's open
+  // animation, which would otherwise eat the focus.
+  useEffect(() => {
+    if (!open || tab !== "name") return;
+    const t = setTimeout(() => nameInputRef.current?.focus(), 120);
+    return () => clearTimeout(t);
+  }, [open, tab]);
 
   // --- name search state ---
   const [nameQuery, setNameQuery] = useState("");
@@ -166,6 +177,7 @@ export function SearchDrawer({ open, onClose, onNavigate }: Props) {
             children: (
               <Space direction="vertical" style={{ width: "100%" }}>
                 <Input.Search
+                  ref={nameInputRef}
                   placeholder="Substring or regex (min 2 chars)…"
                   value={nameQuery}
                   onChange={(e) => setNameQuery(e.target.value)}
