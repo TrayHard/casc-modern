@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { message } from "antd";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { api, ExportProgress, ExportSummary, Settings } from "./api";
+import { api, errMsg, ExportProgress, ExportSummary, Settings } from "./api";
 
 interface UseExporterResult {
   running: boolean;
@@ -10,6 +10,8 @@ interface UseExporterResult {
   done: ExportSummary | null;
   /** Trigger the export flow for a virtual path (file or directory). */
   exportPath: (virtualPath: string) => Promise<void>;
+  /** Export an explicit list of virtual paths (multi-select). */
+  exportPaths: (paths: string[]) => Promise<void>;
   /** Convert every `.sprite` under `virtualPath` to PNG and export. */
   exportPathAsPng: (virtualPath: string) => Promise<void>;
   cancel: () => Promise<void>;
@@ -70,7 +72,7 @@ export function useExporter(
       await runner(picked);
       // The export_done event resolves running/progress state.
     } catch (e) {
-      message.error(`Export failed: ${e}`);
+      message.error(`Export failed: ${errMsg(e)}`);
       setRunning(false);
       setProgress(null);
     }
@@ -78,6 +80,10 @@ export function useExporter(
 
   function exportPath(virtualPath: string) {
     return runExport(virtualPath, (t) => api.exportPath(virtualPath, t));
+  }
+
+  function exportPaths(paths: string[]) {
+    return runExport(paths.join(","), (t) => api.exportPaths(paths, t));
   }
 
   function exportPathAsPng(virtualPath: string) {
@@ -101,6 +107,7 @@ export function useExporter(
     progress,
     done,
     exportPath,
+    exportPaths,
     exportPathAsPng,
     cancel,
     dismissDone,

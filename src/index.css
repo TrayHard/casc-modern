@@ -17,3 +17,13 @@ html, body, #root {
   height: 100%;
   min-height: 0;
 }
+
+/* Explorer-style multi-selection highlight in the directory view. Override
+   antd's per-cell background (incl. the hover state) so selected rows stay
+   visibly highlighted. */
+.dv-row-selected > td.ant-table-cell {
+  background-color: rgba(22, 119, 255, 0.25) !important;
+}
+.dv-row-selected:hover > td.ant-table-cell {
+  background-color: rgba(22, 119, 255, 0.32) !important;
+}

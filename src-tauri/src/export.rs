@@ -1,8 +1,9 @@
 //! Bulk export of files and (recursively) directories from a CASC storage to
 //! the local filesystem. Streams progress events to the UI.
 
-use crate::{ApiError, ApiResult, AppState};
+use crate::{ApiError, ApiResult, AppState, Opened};
 use serde::Serialize;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -32,6 +33,55 @@ pub struct ExportSummary {
     pub elapsed_ms: u128,
 }
 
+/// A unit of export work: which file to pull from the storage, its size, and
+/// the path (relative to the chosen target dir) it should be written to.
+type Task = (String, u64, String);
+
+/// Collect the work list for a single virtual path.
+///
+/// A file yields its basename. A directory yields every file beneath it; when
+/// `under_basename` is true the directory's own name is kept as the leading
+/// output segment (so sibling selections don't collide), and when false its
+/// contents are flattened directly into the target — the latter preserves the
+/// long-standing single-directory "Export folder…" behavior.
+fn collect_tasks(opened: &Opened, virtual_path: &str, under_basename: bool) -> Vec<Task> {
+    if let Some((storage_path, size)) = opened.index.resolve(virtual_path) {
+        let basename = virtual_path
+            .rsplit('/')
+            .next()
+            .unwrap_or(virtual_path)
+            .to_string();
+        return vec![(storage_path, size, basename)];
+    }
+
+    // Directory case — collect every file under the prefix.
+    let trimmed = virtual_path.trim_end_matches('/');
+    let prefix = if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("{trimmed}/")
+    };
+    let dir_name = trimmed.rsplit('/').next().unwrap_or(trimmed).to_string();
+
+    let mut out = Vec::new();
+    for (norm_path, storage_path, size) in opened.index.iter_files() {
+        let rel = if prefix.is_empty() {
+            Some(norm_path.to_string())
+        } else {
+            norm_path.strip_prefix(&prefix).map(|s| s.to_string())
+        };
+        if let Some(rel) = rel {
+            let rel = if under_basename && !dir_name.is_empty() {
+                format!("{dir_name}/{rel}")
+            } else {
+                rel
+            };
+            out.push((storage_path.to_string(), size, rel));
+        }
+    }
+    out
+}
+
 /// Export a virtual path (file or directory) to `target_dir`.
 /// For directories, the storage layout under the path is preserved
 /// relative to `target_dir`.
@@ -43,52 +93,70 @@ pub async fn export_path(
     virtual_path: String,
     target_dir: String,
 ) -> ApiResult<ExportSummary> {
-    // Collect work list: (storage_path, size, relative_out_path)
-    let tasks: Vec<(String, u64, String)> = {
+    let tasks = {
         let lock = state.opened.lock().expect("opened storage lock poisoned");
         let opened = lock
             .as_ref()
             .ok_or_else(|| ApiError { message: "no storage open".into() })?;
-        let mut out = Vec::new();
-        // File case
-        if let Some((storage_path, size)) = opened.index.resolve(&virtual_path) {
-            let basename = virtual_path
-                .rsplit('/')
-                .next()
-                .unwrap_or(&virtual_path)
-                .to_string();
-            out.push((storage_path, size, basename));
-        } else {
-            // Directory case — collect every file under the prefix.
-            let prefix = if virtual_path.is_empty() {
-                String::new()
-            } else {
-                format!("{}/", virtual_path.trim_end_matches('/'))
-            };
-            for (norm_path, storage_path, size) in opened.index.iter_files() {
-                let rel = if prefix.is_empty() {
-                    Some(norm_path.to_string())
-                } else {
-                    norm_path
-                        .strip_prefix(&prefix)
-                        .map(|s| s.to_string())
-                };
-                if let Some(rel) = rel {
-                    out.push((storage_path.to_string(), size, rel));
+        let tasks = collect_tasks(opened, &virtual_path, false);
+        if tasks.is_empty() {
+            return Err(ApiError {
+                message: format!("{virtual_path}: nothing to export"),
+            });
+        }
+        tasks
+    };
+
+    run_export(app, export_state.cancel.clone(), tasks, target_dir).await
+}
+
+/// Export an explicit list of virtual paths (files and/or directories) to
+/// `target_dir` — backs the directory view's multi-select export. Files keep
+/// their basename; directories keep their own name as the leading output
+/// segment. Duplicate destinations (e.g. a file selected alongside its parent
+/// folder) are written only once.
+#[tauri::command]
+pub async fn export_paths(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    export_state: tauri::State<'_, ExportState>,
+    paths: Vec<String>,
+    target_dir: String,
+) -> ApiResult<ExportSummary> {
+    let tasks = {
+        let lock = state.opened.lock().expect("opened storage lock poisoned");
+        let opened = lock
+            .as_ref()
+            .ok_or_else(|| ApiError { message: "no storage open".into() })?;
+        let mut out: Vec<Task> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        for p in &paths {
+            for task in collect_tasks(opened, p, true) {
+                if seen.insert(task.2.clone()) {
+                    out.push(task);
                 }
             }
-            if out.is_empty() {
-                return Err(ApiError {
-                    message: format!("{virtual_path}: nothing to export"),
-                });
-            }
+        }
+        if out.is_empty() {
+            return Err(ApiError { message: "nothing to export".into() });
         }
         out
     };
-    let total = tasks.len() as u32;
 
-    export_state.cancel.store(false, Ordering::SeqCst);
-    let cancel = export_state.cancel.clone();
+    run_export(app, export_state.cancel.clone(), tasks, target_dir).await
+}
+
+/// Run a prepared task list on a blocking thread, streaming `export_progress`
+/// events and emitting `export_done` when finished. Shared by every export
+/// entry point.
+async fn run_export(
+    app: AppHandle,
+    cancel: Arc<AtomicBool>,
+    tasks: Vec<Task>,
+    target_dir: String,
+) -> ApiResult<ExportSummary> {
+    let total = tasks.len() as u32;
+    cancel.store(false, Ordering::SeqCst);
     let target = PathBuf::from(&target_dir);
 
     let app_blocking = app.clone();

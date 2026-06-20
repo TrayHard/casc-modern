@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Layout, Space, Statistic, Typography, message } from "antd";
 import { FolderOpenOutlined, SearchOutlined } from "@ant-design/icons";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { api, Bookmark, OpenResult, Settings, basename } from "./lib/api";
+import { api, errMsg, Bookmark, OpenResult, Settings, basename } from "./lib/api";
 import { Selection } from "./lib/selection";
 import { StorageTree } from "./components/StorageTree";
 import { DirectoryView } from "./components/DirectoryView";
@@ -15,7 +15,9 @@ import { UpdateButton } from "./components/UpdateButton";
 import { useExporter } from "./lib/useExporter";
 import {
   buildContextMenu,
+  buildMultiContextMenu,
   handleContextAction,
+  handleMultiContextAction,
 } from "./lib/contextMenuItems";
 
 const { Sider, Content, Header } = Layout;
@@ -25,6 +27,8 @@ interface CtxMenuState {
   x: number;
   y: number;
   target: Selection;
+  /** Effective selection: 1 path = single-item menu, >1 = multi menu. */
+  paths: string[];
 }
 
 export default function App() {
@@ -54,7 +58,7 @@ export default function App() {
         await api.setBookmarks(next);
         refreshSettings();
       } catch (e) {
-        message.error(`Bookmark save failed: ${e}`);
+        message.error(`Bookmark save failed: ${errMsg(e)}`);
       }
     },
     [refreshSettings]
@@ -91,7 +95,7 @@ export default function App() {
       );
       api.getSettings().then(setSettings).catch(() => {});
     } catch (e) {
-      message.error(`Failed to open: ${e}`);
+      message.error(`Failed to open: ${errMsg(e)}`);
     } finally {
       setLoading(false);
     }
@@ -138,12 +142,14 @@ export default function App() {
   }, [settings, openStorage]);
 
   const onContextMenu = useCallback(
-    (x: number, y: number, target: Selection) => setCtxMenu({ x, y, target }),
+    (x: number, y: number, target: Selection, paths?: string[]) =>
+      setCtxMenu({ x, y, target, paths: paths ?? [target.path] }),
     []
   );
 
   const ctxItems = useMemo(() => {
     if (!ctxMenu) return [];
+    if (ctxMenu.paths.length > 1) return buildMultiContextMenu(ctxMenu.paths.length);
     const isBookmarked = bookmarks.some((b) => b.path === ctxMenu.target.path);
     return buildContextMenu({ target: ctxMenu.target, isBookmarked });
   }, [ctxMenu, bookmarks]);
@@ -151,16 +157,28 @@ export default function App() {
   const handleCtxSelect = useCallback(
     async (key: string) => {
       if (!ctxMenu) return;
-      const target = ctxMenu.target;
+      const { target, paths } = ctxMenu;
       setCtxMenu(null);
-      await handleContextAction(key, target, {
+      const actions = {
         open: setSelection,
         exportPath: exporter.exportPath,
+        exportPaths: exporter.exportPaths,
         exportPathAsPng: exporter.exportPathAsPng,
         toggleBookmark,
-      });
+      };
+      if (paths.length > 1) {
+        await handleMultiContextAction(key, paths, actions);
+      } else {
+        await handleContextAction(key, target, actions);
+      }
     },
-    [ctxMenu, exporter.exportPath, exporter.exportPathAsPng, toggleBookmark]
+    [
+      ctxMenu,
+      exporter.exportPath,
+      exporter.exportPaths,
+      exporter.exportPathAsPng,
+      toggleBookmark,
+    ]
   );
 
   const rightPanel = useMemo(() => {
@@ -171,6 +189,7 @@ export default function App() {
           path=""
           onNavigate={setSelection}
           onExport={exporter.exportPath}
+          onExportPaths={exporter.exportPaths}
           onContextMenu={onContextMenu}
         />
       );
@@ -181,6 +200,7 @@ export default function App() {
           path={selection.path}
           onNavigate={setSelection}
           onExport={exporter.exportPath}
+          onExportPaths={exporter.exportPaths}
           onContextMenu={onContextMenu}
         />
       );
@@ -192,7 +212,7 @@ export default function App() {
         onExport={exporter.exportPath}
       />
     );
-  }, [opened, selection, exporter.exportPath, onContextMenu]);
+  }, [opened, selection, exporter.exportPath, exporter.exportPaths, onContextMenu]);
 
   return (
     <Layout style={{ height: "100vh" }}>

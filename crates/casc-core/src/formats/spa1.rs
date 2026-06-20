@@ -75,10 +75,13 @@ impl SpA1 {
                 code: frame,
             });
         }
-        let mut out = vec![0u8; (fw * fh * 4) as usize];
-        let row_stride_src = (self.width * 4) as usize;
-        let row_stride_dst = (fw * 4) as usize;
-        let x_offset = (frame * fw * 4) as usize;
+        // Compute strides/offsets in usize: `width * frame_count` atlases can
+        // exceed u32 once multiplied by 4, which would panic on overflow in a
+        // debug build.
+        let mut out = vec![0u8; fw as usize * fh as usize * 4];
+        let row_stride_src = self.width as usize * 4;
+        let row_stride_dst = fw as usize * 4;
+        let x_offset = frame as usize * fw as usize * 4;
         for y in 0..fh as usize {
             let src = &self.pixels[y * row_stride_src + x_offset
                 ..y * row_stride_src + x_offset + row_stride_dst];
@@ -144,13 +147,19 @@ pub fn decode(bytes: &[u8]) -> Result<SpA1, CascError> {
 }
 
 fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, CascError> {
+    if width == 0 || height == 0 {
+        return Err(CascError::Backend {
+            op: "spa1: zero-dimension image",
+            code: 0,
+        });
+    }
     let img = image::RgbaImage::from_raw(width, height, rgba.to_vec()).ok_or(
         CascError::Backend {
             op: "spa1: raw buffer doesn't match dims",
             code: 0,
         },
     )?;
-    let mut out = Vec::with_capacity((width * height * 4) as usize / 2);
+    let mut out = Vec::with_capacity(width as usize * height as usize * 4 / 2);
     img.write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png)
         .map_err(|_| CascError::Backend { op: "png encode failed", code: 0 })?;
     Ok(out)
@@ -204,6 +213,16 @@ mod tests {
         assert_eq!(s.pixels, px);
         let png = s.to_png().unwrap();
         assert!(png.starts_with(&[0x89, b'P', b'N', b'G']));
+    }
+
+    #[test]
+    fn zero_dimension_sprite_errors_not_panics() {
+        // A degenerate 0x0 sprite must surface a clean error from encode, never
+        // panic — bulk PNG export relies on bad files failing softly.
+        let raw = synth_spa1(0, 0, 1, &[]);
+        let s = decode(&raw).unwrap();
+        assert_eq!(s.width, 0);
+        assert!(s.to_png().is_err());
     }
 
     #[test]

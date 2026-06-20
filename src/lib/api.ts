@@ -92,6 +92,8 @@ export const api = {
 
   exportPath: (virtualPath: string, targetDir: string) =>
     invoke<ExportSummary>("export_path", { virtualPath, targetDir }),
+  exportPaths: (paths: string[], targetDir: string) =>
+    invoke<ExportSummary>("export_paths", { paths, targetDir }),
   exportPathAsPng: (virtualPath: string, targetDir: string) =>
     invoke<ExportSummary>("export_path_as_png", { virtualPath, targetDir }),
   cancelExport: () => invoke<void>("cancel_export"),
@@ -154,6 +156,19 @@ export type ExportSummary = {
   target_dir: string;
   elapsed_ms: number;
 };
+
+/// Tauri rejects a `Result<_, ApiError>` command with the serialized error
+/// object `{ message }`. Interpolating that straight into a string yields the
+/// useless "[object Object]"; pull the human message out, falling back to the
+/// raw value for plain-string throws.
+export function errMsg(e: unknown): string {
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object" && "message" in e) {
+    const m = (e as { message?: unknown }).message;
+    if (typeof m === "string") return m;
+  }
+  return String(e);
+}
 
 /// Parent of a normalized path. "" for root.
 export function parentPath(path: string): string {

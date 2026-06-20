@@ -132,12 +132,20 @@ pub async fn export_path_as_png(
                 };
             }
             let out_path = target.join(rel);
-            match decode_and_write(&app_blocking, storage_path, &out_path) {
-                Ok((n_files, n_bytes)) => {
+            // A malformed sprite must not abort the whole batch: catch any
+            // panic from the decoder and record it as a per-file error like a
+            // normal failure. The storage lock is released inside
+            // `decode_and_write` before decoding, so a panic can't poison it.
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                decode_and_write(&app_blocking, storage_path, &out_path)
+            }));
+            match outcome {
+                Ok(Ok((n_files, n_bytes))) => {
                     written += n_files;
                     bytes += n_bytes;
                 }
-                Err(e) => errors.push(format!("{rel}: {e}")),
+                Ok(Err(e)) => errors.push(format!("{rel}: {e}")),
+                Err(_) => errors.push(format!("{rel}: decoder panicked (skipped)")),
             }
             if (i as u32) % 8 == 0 || (i as u32) + 1 == total {
                 let _ = app_blocking.emit(
@@ -187,12 +195,21 @@ fn decode_and_write(
     storage_path: &str,
     out_path: &Path,
 ) -> Result<(u32, u64), String> {
-    let app_state = app.state::<AppState>();
-    let lock = app_state.opened.lock().expect("opened storage lock poisoned");
-    let opened = lock
-        .as_ref()
-        .ok_or_else(|| "storage closed during export".to_string())?;
-    let bytes = opened.storage.read(storage_path).map_err(|e| e.to_string())?;
+    // Read the raw bytes under the lock, then release it *before* decoding.
+    // Decoding an untrusted sprite can be slow or (despite our best efforts)
+    // panic; holding the storage mutex across that would serialize the whole
+    // export and, on a panic, poison the mutex for every later file.
+    let bytes = {
+        let app_state = app.state::<AppState>();
+        let lock = app_state
+            .opened
+            .lock()
+            .map_err(|_| "storage lock poisoned".to_string())?;
+        let opened = lock
+            .as_ref()
+            .ok_or_else(|| "storage closed during export".to_string())?;
+        opened.storage.read(storage_path).map_err(|e| e.to_string())?
+    };
     let sprite = spa1::decode(&bytes).map_err(|e| e.to_string())?;
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;

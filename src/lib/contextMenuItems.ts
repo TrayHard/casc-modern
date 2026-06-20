@@ -2,12 +2,13 @@ import type { ItemType } from "antd/es/menu/interface";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { message } from "antd";
-import { api } from "./api";
+import { api, errMsg } from "./api";
 import type { Selection } from "./selection";
 
 export interface ContextActions {
   open: (s: Selection) => void;
   exportPath: (path: string) => Promise<void>;
+  exportPaths: (paths: string[]) => Promise<void>;
   exportPathAsPng: (path: string) => Promise<void>;
   toggleBookmark: (target: Selection) => void;
 }
@@ -57,6 +58,36 @@ export function buildContextMenu({ target, isBookmarked }: BuildArgs): ItemType[
   ];
 }
 
+/// Menu for a multi-selection in the directory view: act on every selected
+/// item at once. `count` drives the label.
+export function buildMultiContextMenu(count: number): ItemType[] {
+  return [
+    { key: "export", label: `Export ${count} selected…` },
+    { type: "divider" },
+    { key: "copy-paths", label: "Copy paths" },
+  ];
+}
+
+export async function handleMultiContextAction(
+  key: string,
+  paths: string[],
+  actions: ContextActions
+) {
+  switch (key) {
+    case "export":
+      await actions.exportPaths(paths);
+      return;
+    case "copy-paths":
+      try {
+        await writeText(paths.join("\n"));
+        message.success(`Copied ${paths.length} paths`);
+      } catch (e) {
+        message.error(`Clipboard failed: ${errMsg(e)}`);
+      }
+      return;
+  }
+}
+
 export async function handleContextAction(
   key: string,
   target: Selection,
@@ -81,7 +112,7 @@ export async function handleContextAction(
         const tmp = await api.extractToTemp(target.path);
         await openPath(tmp);
       } catch (e) {
-        message.error(`Open failed: ${e}`);
+        message.error(`Open failed: ${errMsg(e)}`);
       }
       return;
     case "copy-path":
@@ -89,7 +120,7 @@ export async function handleContextAction(
         await writeText(target.path);
         message.success("Path copied");
       } catch (e) {
-        message.error(`Clipboard failed: ${e}`);
+        message.error(`Clipboard failed: ${errMsg(e)}`);
       }
       return;
   }

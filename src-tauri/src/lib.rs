@@ -252,6 +252,7 @@ pub fn run() {
             search::search_content,
             search::cancel_search,
             export::export_path,
+            export::export_paths,
             export::cancel_export,
             sprites::decode_sprite,
             sprites::export_path_as_png,
