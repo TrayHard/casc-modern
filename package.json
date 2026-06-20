@@ -12,7 +12,7 @@
     "tcheck": "tsc --noEmit",
     "tdev": "tauri dev",
     "tbuild": "tauri build",
-    "tbuild:release": "tauri build --bundles msi && node nogit/build/postbuild-rename.js && node nogit/build/generate-latest-json.js",
+    "tbuild:release": "tauri build --bundles msi && node nogit/build/sign-bundle.js && node nogit/build/postbuild-rename.js && node nogit/build/generate-latest-json.js",
     "tauri": "tauri"
   },
   "dependencies": {
