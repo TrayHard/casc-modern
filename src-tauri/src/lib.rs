@@ -62,11 +62,11 @@ async fn open_storage(
     let (storage, index, info) = result;
     let indexed_dirs = index.dir_count();
     let indexed_files = index.file_count();
-    *state.opened.lock().unwrap() = Some(Opened { storage, index });
+    *state.opened.lock().expect("opened storage lock poisoned") = Some(Opened { storage, index });
 
     // Record success in settings — last_storage_path + recents.
     {
-        let mut s = settings_state.0.lock().unwrap();
+        let mut s = settings_state.0.lock().expect("settings lock poisoned");
         s.touch_recent(&path);
         let _ = s.save(&app);
     }
@@ -76,12 +76,12 @@ async fn open_storage(
 
 #[tauri::command]
 fn close_storage(state: tauri::State<'_, AppState>) {
-    *state.opened.lock().unwrap() = None;
+    *state.opened.lock().expect("opened storage lock poisoned") = None;
 }
 
 #[tauri::command]
 fn list_dir(state: tauri::State<'_, AppState>, path: String) -> ApiResult<Vec<IndexEntry>> {
-    let lock = state.opened.lock().unwrap();
+    let lock = state.opened.lock().expect("opened storage lock poisoned");
     let opened = lock
         .as_ref()
         .ok_or_else(|| ApiError { message: "no storage open".into() })?;
@@ -104,7 +104,7 @@ fn read_file_preview(
     path: String,
     max_bytes: u32,
 ) -> ApiResult<FilePreview> {
-    let lock = state.opened.lock().unwrap();
+    let lock = state.opened.lock().expect("opened storage lock poisoned");
     let opened = lock
         .as_ref()
         .ok_or_else(|| ApiError { message: "no storage open".into() })?;
@@ -128,7 +128,7 @@ struct FileMeta {
 
 #[tauri::command]
 fn get_file_meta(state: tauri::State<'_, AppState>, path: String) -> ApiResult<FileMeta> {
-    let lock = state.opened.lock().unwrap();
+    let lock = state.opened.lock().expect("opened storage lock poisoned");
     let opened = lock
         .as_ref()
         .ok_or_else(|| ApiError { message: "no storage open".into() })?;
@@ -143,7 +143,7 @@ fn get_file_meta(state: tauri::State<'_, AppState>, path: String) -> ApiResult<F
 
 #[tauri::command]
 fn get_settings(state: tauri::State<'_, SettingsState>) -> Settings {
-    state.0.lock().unwrap().clone()
+    state.0.lock().expect("settings lock poisoned").clone()
 }
 
 /// True when the running binary lives in a typical installer-managed
@@ -171,7 +171,7 @@ fn is_installed() -> bool {
 /// Used by "Open externally" — frontend then opens it via the shell.
 #[tauri::command]
 fn extract_to_temp(state: tauri::State<'_, AppState>, path: String) -> ApiResult<String> {
-    let lock = state.opened.lock().unwrap();
+    let lock = state.opened.lock().expect("opened storage lock poisoned");
     let opened = lock
         .as_ref()
         .ok_or_else(|| ApiError { message: "no storage open".into() })?;
@@ -193,7 +193,7 @@ fn set_last_export_dir(
     state: tauri::State<'_, SettingsState>,
     dir: String,
 ) -> ApiResult<()> {
-    let mut s = state.0.lock().unwrap();
+    let mut s = state.0.lock().expect("settings lock poisoned");
     s.last_export_dir = Some(dir);
     s.save(&app)
         .map_err(|e| ApiError { message: e.to_string() })?;
@@ -206,7 +206,7 @@ fn set_bookmarks(
     state: tauri::State<'_, SettingsState>,
     bookmarks: Vec<Bookmark>,
 ) -> ApiResult<()> {
-    let mut s = state.0.lock().unwrap();
+    let mut s = state.0.lock().expect("settings lock poisoned");
     s.bookmarks = bookmarks;
     s.save(&app)
         .map_err(|e| ApiError { message: e.to_string() })?;

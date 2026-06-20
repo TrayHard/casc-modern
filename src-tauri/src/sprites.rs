@@ -28,7 +28,7 @@ pub struct SpriteImage {
 
 #[tauri::command]
 pub fn decode_sprite(state: tauri::State<'_, AppState>, path: String) -> ApiResult<SpriteImage> {
-    let lock = state.opened.lock().unwrap();
+    let lock = state.opened.lock().expect("opened storage lock poisoned");
     let opened = lock
         .as_ref()
         .ok_or_else(|| ApiError { message: "no storage open".into() })?;
@@ -65,7 +65,7 @@ pub async fn export_path_as_png(
     target_dir: String,
 ) -> ApiResult<ExportSummary> {
     let tasks: Vec<(String, String)> = {
-        let lock = state.opened.lock().unwrap();
+        let lock = state.opened.lock().expect("opened storage lock poisoned");
         let opened = lock
             .as_ref()
             .ok_or_else(|| ApiError { message: "no storage open".into() })?;
@@ -188,7 +188,7 @@ fn decode_and_write(
     out_path: &Path,
 ) -> Result<(u32, u64), String> {
     let app_state = app.state::<AppState>();
-    let lock = app_state.opened.lock().unwrap();
+    let lock = app_state.opened.lock().expect("opened storage lock poisoned");
     let opened = lock
         .as_ref()
         .ok_or_else(|| "storage closed during export".to_string())?;

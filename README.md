@@ -103,7 +103,7 @@ A `casc` CLI is also built (`crates/casc-cli`) with `info`, `list`,
 
 Prerequisites on Windows:
 
-- Rust stable (≥ 1.80) — install via [rustup](https://rustup.rs/).
+- Rust stable (≥ 1.82) — install via [rustup](https://rustup.rs/).
 - Node.js 20 LTS and npm.
 - Visual Studio 2022 Build Tools with the "Desktop development with C++"
   workload (MSVC + Windows SDK). CascLib is built from vendored C++

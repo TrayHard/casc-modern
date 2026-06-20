@@ -8,7 +8,9 @@
 
 use crate::{ApiError, ApiResult, AppState};
 use globset::Glob;
+use memchr::memmem;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
@@ -34,7 +36,7 @@ pub fn search_names(
     use_regex: bool,
     limit: u32,
 ) -> ApiResult<Vec<NameHit>> {
-    let lock = state.opened.lock().unwrap();
+    let lock = state.opened.lock().expect("opened storage lock poisoned");
     let opened = lock
         .as_ref()
         .ok_or_else(|| ApiError { message: "no storage open".into() })?;
@@ -150,7 +152,7 @@ pub async fn search_content(
     // Snapshot the candidate paths up front so we don't hold AppState's lock
     // through the long scan.
     let candidates: Vec<(String, String, u64)> = {
-        let lock = state.opened.lock().unwrap();
+        let lock = state.opened.lock().expect("opened storage lock poisoned");
         let opened = lock
             .as_ref()
             .ok_or_else(|| ApiError { message: "no storage open".into() })?;
@@ -168,11 +170,17 @@ pub async fn search_content(
 
     // Reset cancel + running flags.
     search_state.cancel.store(false, Ordering::SeqCst);
-    *search_state.running.lock().unwrap() = true;
+    *search_state.running.lock().expect("search-running lock poisoned") = true;
     let cancel = search_state.cancel.clone();
 
-    let needle_lower = query.to_ascii_lowercase();
-    let needle_raw = query.into_bytes();
+    // Prebuild the search needle once. `Finder` does SIMD precomputation that
+    // is reused for every file scan — much faster than calling `find()` cold
+    // 175k times. We hand it owned bytes so the closure captures it cleanly.
+    let needle_bytes: Vec<u8> = if case_insensitive {
+        query.to_ascii_lowercase().into_bytes()
+    } else {
+        query.into_bytes()
+    };
     let app_for_blocking = app.clone();
 
     // The blocking task reacquires the storage lock per-read through
@@ -181,6 +189,8 @@ pub async fn search_content(
     // serialize reads through the existing Mutex.
     let result = tokio::task::spawn_blocking(move || -> SearchDone {
         let started = std::time::Instant::now();
+        let finder = memmem::Finder::new(&needle_bytes);
+        let needle_len = needle_bytes.len();
         let mut hits = 0u32;
         let mut scanned = 0u32;
         let mut error: Option<String> = None;
@@ -205,28 +215,46 @@ pub async fn search_content(
                     continue;
                 }
             };
-            let hit = find_match(
-                &bytes,
-                if case_insensitive {
-                    needle_lower.as_bytes()
-                } else {
-                    needle_raw.as_slice()
+            // For case-insensitive search we need to lowercase the haystack,
+            // but only own a copy when we actually have to. `Cow::Borrowed`
+            // skips the allocation entirely for case-sensitive scans.
+            let haystack: Cow<'_, [u8]> = if case_insensitive {
+                Cow::Owned(bytes.iter().map(u8::to_ascii_lowercase).collect())
+            } else {
+                Cow::Borrowed(&bytes)
+            };
+            // Single pass: take the first offset and count the rest with the
+            // same Finder. Previously this was two separate scans.
+            let mut iter = finder.find_iter(&haystack);
+            let Some(offset) = iter.next() else {
+                if scanned % 64 == 0 || scanned == total {
+                    let _ = app_for_blocking.emit(
+                        "search_progress",
+                        SearchProgress {
+                            scanned,
+                            total,
+                            current_path: path.clone(),
+                            matches_so_far: hits,
+                        },
+                    );
+                }
+                continue;
+            };
+            let count = 1 + iter.count() as u32;
+            hits += 1;
+            // Excerpt comes from the ORIGINAL bytes (preserves case) so the
+            // user sees the real text they hit, not the lowercased copy.
+            let excerpt = excerpt(&bytes, offset, needle_len);
+            let _ = app_for_blocking.emit(
+                "search_hit",
+                ContentHit {
+                    path: path.clone(),
+                    size: *size,
+                    match_offset: offset as u64,
+                    match_count: count,
+                    excerpt,
                 },
-                case_insensitive,
             );
-            if let Some((offset, count, excerpt)) = hit {
-                hits += 1;
-                let _ = app_for_blocking.emit(
-                    "search_hit",
-                    ContentHit {
-                        path: path.clone(),
-                        size: *size,
-                        match_offset: offset as u64,
-                        match_count: count,
-                        excerpt,
-                    },
-                );
-            }
             // Throttle progress events to once every 64 files.
             if scanned % 64 == 0 || scanned == total {
                 let _ = app_for_blocking.emit(
@@ -253,7 +281,7 @@ pub async fn search_content(
     .await
     .map_err(|e| ApiError { message: format!("join: {e}") })?;
 
-    *search_state.running.lock().unwrap() = false;
+    *search_state.running.lock().expect("search-running lock poisoned") = false;
     let _ = app.emit("search_done", &result);
     Ok(result.matches)
 }
@@ -268,34 +296,11 @@ fn read_storage_file(app: &AppHandle, storage_path: &str) -> Result<Vec<u8>, Str
     // isn't held across other awaits.
     use tauri::Manager;
     let app_state = app.state::<AppState>();
-    let lock = app_state.opened.lock().unwrap();
+    let lock = app_state.opened.lock().expect("opened storage lock poisoned");
     let opened = lock
         .as_ref()
         .ok_or_else(|| "storage closed during search".to_string())?;
     opened.storage.read(storage_path).map_err(|e| e.to_string())
-}
-
-fn find_match(
-    haystack: &[u8],
-    needle: &[u8],
-    case_insensitive: bool,
-) -> Option<(usize, u32, String)> {
-    if needle.is_empty() {
-        return None;
-    }
-    if case_insensitive {
-        let lower: Vec<u8> = haystack
-            .iter()
-            .map(|b| b.to_ascii_lowercase())
-            .collect();
-        let pos = memchr::memmem::find(&lower, needle)?;
-        let count = memchr::memmem::find_iter(&lower, needle).count() as u32;
-        Some((pos, count, excerpt(haystack, pos, needle.len())))
-    } else {
-        let pos = memchr::memmem::find(haystack, needle)?;
-        let count = memchr::memmem::find_iter(haystack, needle).count() as u32;
-        Some((pos, count, excerpt(haystack, pos, needle.len())))
-    }
 }
 
 /// 64 chars of context around the match, normalized to printable ASCII.

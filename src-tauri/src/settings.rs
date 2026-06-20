@@ -8,15 +8,34 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// Bumped whenever this struct gains a field that can't be defaulted from
+/// an older settings.json. Always written; ignored on read unless we add a
+/// migration step in [`Settings::load`].
+pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    /// Schema version of the on-disk file. See [`CURRENT_SCHEMA_VERSION`].
+    pub schema_version: u32,
     pub last_storage_path: Option<String>,
     pub last_export_dir: Option<String>,
     /// Most-recently-opened storages, newest first, capped at 8.
     pub recent_storages: Vec<String>,
     /// User-pinned shortcuts to files/folders inside the storage.
     pub bookmarks: Vec<Bookmark>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            schema_version: CURRENT_SCHEMA_VERSION,
+            last_storage_path: None,
+            last_export_dir: None,
+            recent_storages: Vec::new(),
+            bookmarks: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
