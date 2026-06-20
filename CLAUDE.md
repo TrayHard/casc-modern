@@ -21,10 +21,9 @@ conflated**:
 - **Commit** (`git commit`, optionally push) = saving work to git history.
   Nothing else. When the user says "commit", do ONLY that — never bump the
   version, build, tag a `vX.Y.Z`, or create a GitHub release.
-- **Release / publish a new version** = the full versioned flow: bump version
-  in `package.json` + `tauri.conf.json` → signed MSI build via
-  `[private]` → tag `vX.Y.Z` → push → GitHub release with the
-  portable exe, signed MSI, MSI `.sig`, and `latest.json`. This happens **only**
+- **Release / publish a new version** = the full versioned signed-build flow.
+  This is a maintainer-only process, gated on the private updater key and
+  documented separately (not part of the public repo). It happens **only**
   when the user explicitly asks to release or publish a new version.
 
 A release *contains* commits, but a plain commit never escalates into a release.
@@ -48,10 +47,9 @@ npm run dev                  # Vite dev server only (no Tauri shell)
 npm run tdev                 # tauri dev — actual desktop app, hot reload
 npm run tcheck               # tsc --noEmit — TypeScript type gate
 npm run build                # tsc + vite build (frontend bundle only)
-npm run tbuild               # tauri build + postbuild scripts
+npm run tbuild               # tauri build → portable exe + MSI (unsigned)
 cargo test -p casc-core      # the Rust test suite (FileIndex + SpA1 decoder)
 cargo run -p casc-cli --quiet -- <subcommand>   # `casc info|list|extract|cat`
-[private]      # signed release build (see "Release" below)
 ```
 
 `tcheck` is the only frontend gate — there is no linter. For UI changes,
@@ -63,29 +61,13 @@ cargo run -p casc-cli --quiet -- <subcommand>   # `casc info|list|extract|cat`
 
 ### Release
 
-Building a signed release requires a private updater key at
-`[private]`. `[private]` loads it into
-`TAURI_SIGNING_PRIVATE_KEY_PATH` and then runs `npm run tbuild`, which chains:
+Producing a **signed, auto-updatable** release is a maintainer-only flow that
+depends on the private updater key (kept outside the repo) — it is **not** part
+of the public repository. Maintainers: see `nogit/CLAUDE.release.md` for the
+full procedure, asset list, and key-handling rules.
 
-1. `tauri build` — produces `target/release/casc-modern.exe` (portable) and
-   `target/release/bundle/msi/CASC Modern_<version>_x64_en-US.msi` (+ `.sig`).
-2. `[private]` — renames the portable exe to include
-   the version (e.g. `casc-modern_0.1.0.exe`).
-3. `[private]` — emits
-   `target/release/bundle/latest.json` for the updater, referencing the MSI
-   URL on `github.com/TrayHard/casc-modern/releases/download/v<version>/…`
-   with the minisign signature embedded inline.
-
-A GitHub release for `v<version>` must include **four** assets:
-- `casc-modern_<version>.exe` (portable)
-- `CASC Modern_<version>_x64_en-US.msi` (signed installer)
-- `CASC Modern_<version>_x64_en-US.msi.sig`
-- `latest.json`
-
-The pubkey clients pin to lives at
-`tauri.conf.json#plugins.updater.pubkey`. **It cannot be rotated** — losing
-`[private]` permanently breaks auto-update for every installed
-copy. Back the key up outside the repo.
+Public contributors never need any of that — `npm run tbuild` produces a plain
+unsigned local build (`tauri build`).
 
 ## Architecture
 

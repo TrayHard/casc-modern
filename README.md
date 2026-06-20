@@ -186,6 +186,8 @@ MIT — see [LICENSE](LICENSE). Copyright © 2026 Poliakov Ilia (TrayHard).
 ---
 
 This project is not affiliated with, endorsed by, or sponsored by Blizzard
-Entertainment. Diablo II: Resurrected is a trademark of Blizzard
-Entertainment, Inc. A legal copy of the game is required to use this tool;
-no game assets are redistributed by this project.
+Entertainment. Diablo® and Diablo® II: Resurrected are trademarks or registered
+trademarks of Blizzard Entertainment, Inc. A legal copy of the game is required
+to use this tool; the project itself ships no game assets. Screenshots in this
+repository depict the tool operating on the user's own legally-obtained game
+files and are shown for identification purposes only.

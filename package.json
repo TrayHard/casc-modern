@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "tcheck": "tsc --noEmit",
     "tdev": "tauri dev",
-    "tbuild": "tauri build && node [private] && node [private]",
+    "tbuild": "tauri build",
+    "tbuild:release": "tauri build && node nogit/build/postbuild-rename.js && node nogit/build/generate-latest-json.js",
     "tauri": "tauri"
   },
   "dependencies": {

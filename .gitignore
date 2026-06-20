@@ -10,3 +10,9 @@ src-tauri/Cargo.lock
 nogit/
 dev.bat
 releases/
+.cargo/
+
+# WoW community listfiles — large, regenerated locally via update-listfiles.py,
+# never consumed by the build. Kept out of the repo to keep clones small.
+vendor/CascLib/listfile/listfile.txt
+vendor/CascLib/listfile/listfile-archive.zip
