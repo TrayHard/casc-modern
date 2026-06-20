@@ -6,6 +6,9 @@ html, body, #root {
   height: 100%;
   margin: 0;
   overflow: hidden;
+  /* Matches the Tauri window backgroundColor + antd dark chrome so startup is
+     dark end to end — no white flash before React mounts. */
+  background-color: #141414;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 

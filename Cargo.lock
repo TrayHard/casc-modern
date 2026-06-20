@@ -508,7 +508,7 @@ dependencies = [
 
 [[package]]
 name = "casc-cli"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "casc-core",
@@ -522,7 +522,7 @@ dependencies = [
 
 [[package]]
 name = "casc-core"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bytes",
@@ -535,7 +535,7 @@ dependencies = [
 
 [[package]]
 name = "casc-modern"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -562,7 +562,7 @@ dependencies = [
 
 [[package]]
 name = "casclib-sys"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cc",
 ]
