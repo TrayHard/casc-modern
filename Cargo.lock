@@ -515,6 +515,7 @@ dependencies = [
  "clap",
  "indicatif",
  "rayon",
+ "serde_json",
  "tracing",
  "tracing-subscriber",
 ]

@@ -66,10 +66,11 @@ pub struct Storage {
     root_path: PathBuf,
 }
 
-// CascLib doesn't document per-storage thread safety, so be conservative —
-// HANDLE is not Sync; iteration takes &self but we don't expose it across
-// threads. Sending the handle across threads is fine (the lib uses internal
-// locking for storage state).
+// SAFETY: CascLib's per-storage HANDLE is a heap-allocated descriptor with
+// internal locking for state mutations (see CascCommon.h:TCascStorage). Moving
+// the pointer to another thread is sound — what is NOT sound is concurrent
+// access, hence no `Sync` impl: every method takes `&self` and serializes
+// through an external Mutex in the binaries (`AppState.opened`).
 unsafe impl Send for Storage {}
 
 impl Drop for Storage {
@@ -210,56 +211,18 @@ impl Storage {
 
     /// Read a file's full contents into memory.
     pub fn read(&self, file: &str) -> Result<Vec<u8>> {
-        let mut h_file: sys::HANDLE = ptr::null_mut();
-        let c_file = CString::new(file).map_err(|_| CascError::BadPath(file.to_string()))?;
-        let ok = unsafe {
-            sys::CascOpenFile(
-                self.handle,
-                c_file.as_ptr().cast(),
-                sys::CASC_LOCALE_ALL,
-                sys::CASC_OPEN_BY_NAME,
-                &mut h_file,
-            )
-        };
-        if !sys::ok(ok) || h_file.is_null() {
-            return Err(last_err("CascOpenFile"));
-        }
-        let guard = FileGuard(h_file);
-
-        let mut size: u64 = 0;
-        let ok = unsafe { sys::CascGetFileSize64(guard.0, &mut size) };
-        if !sys::ok(ok) {
-            return Err(last_err("CascGetFileSize64"));
-        }
-
-        let mut buf = vec![0u8; size as usize];
-        let mut total_read: usize = 0;
-        while total_read < buf.len() {
-            let want = (buf.len() - total_read).min(u32::MAX as usize) as u32;
-            let mut got: u32 = 0;
-            let ok = unsafe {
-                sys::CascReadFile(
-                    guard.0,
-                    buf[total_read..].as_mut_ptr().cast(),
-                    want,
-                    &mut got,
-                )
-            };
-            if !sys::ok(ok) {
-                return Err(last_err("CascReadFile"));
-            }
-            if got == 0 {
-                break;
-            }
-            total_read += got as usize;
-        }
-        buf.truncate(total_read);
-        Ok(buf)
+        self.read_limited(file, None)
     }
 
-    /// Read up to `max_bytes` from the start of a file. Cheaper than [`Storage::read`]
-    /// for huge files when you only need a preview.
+    /// Read up to `max_bytes` from the start of a file. Cheaper than
+    /// [`Storage::read`] for huge files when you only need a preview.
     pub fn read_n(&self, file: &str, max_bytes: usize) -> Result<Vec<u8>> {
+        self.read_limited(file, Some(max_bytes))
+    }
+
+    /// Shared implementation for [`Self::read`] and [`Self::read_n`].
+    /// `max_bytes = None` reads the entire file; `Some(n)` caps at `n`.
+    fn read_limited(&self, file: &str, max_bytes: Option<usize>) -> Result<Vec<u8>> {
         let mut h_file: sys::HANDLE = ptr::null_mut();
         let c_file = CString::new(file).map_err(|_| CascError::BadPath(file.to_string()))?;
         let ok = unsafe {
@@ -281,7 +244,14 @@ impl Storage {
         if !sys::ok(ok) {
             return Err(last_err("CascGetFileSize64"));
         }
-        let want_total = (full_size as usize).min(max_bytes);
+        // Guard against 32-bit hosts where a >4GB file would overflow usize.
+        let full_size_usize =
+            usize::try_from(full_size).map_err(|_| CascError::Backend {
+                op: "file too large for address space",
+                code: 0,
+            })?;
+        let want_total = max_bytes.map_or(full_size_usize, |m| m.min(full_size_usize));
+
         let mut buf = vec![0u8; want_total];
         let mut total_read: usize = 0;
         while total_read < buf.len() {

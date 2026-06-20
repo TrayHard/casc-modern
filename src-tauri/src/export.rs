@@ -3,7 +3,7 @@
 
 use crate::{ApiError, ApiResult, AppState};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
@@ -155,7 +155,7 @@ pub fn cancel_export(state: tauri::State<'_, ExportState>) {
     state.cancel.store(true, Ordering::SeqCst);
 }
 
-fn extract_one(app: &AppHandle, storage_path: &str, out_path: &PathBuf) -> Result<u64, String> {
+fn extract_one(app: &AppHandle, storage_path: &str, out_path: &Path) -> Result<u64, String> {
     let app_state = app.state::<AppState>();
     let lock = app_state.opened.lock().unwrap();
     let opened = lock

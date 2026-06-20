@@ -224,6 +224,10 @@ pub unsafe fn cstr_to_string(ptr: *const c_char) -> String {
 /// Helper: read a fixed-length char array (may be NUL-padded) into a String.
 pub fn fixed_cstr_to_string(bytes: &[c_char]) -> String {
     let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+    // SAFETY: `bytes` is a valid slice; `end <= bytes.len()`; `c_char` (i8)
+    // and `u8` are 1-byte aligned with identical bit-patterns, so a same-
+    // length reinterpret is sound. Lifetime is tied to `bytes` for the
+    // duration of the call.
     let slice: &[u8] = unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast(), end) };
     String::from_utf8_lossy(slice).into_owned()
 }

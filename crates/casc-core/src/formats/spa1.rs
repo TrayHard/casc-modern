@@ -105,7 +105,9 @@ pub fn decode(bytes: &[u8]) -> Result<SpA1, CascError> {
     let width = u32_le(&bytes[0x08..0x0C]);
     let height = u32_le(&bytes[0x0C..0x10]);
     let frame_count = u32_le(&bytes[0x14..0x18]).max(1);
-    let data_size = u32_le(&bytes[0x20..0x24]) as usize;
+    // 0x20 reports data_size; we trust the dimensions instead and use it only
+    // as a sanity-check signal during inspection. Read but don't validate.
+    let _data_size = u32_le(&bytes[0x20..0x24]) as usize;
     let bpp = u32_le(&bytes[0x24..0x28]);
 
     if bpp != 4 {
@@ -124,11 +126,10 @@ pub fn decode(bytes: &[u8]) -> Result<SpA1, CascError> {
         })?;
 
     let data = &bytes[HEADER_SIZE..];
-    let take = expected.min(data.len()).min(data_size.max(expected));
-    if take < expected {
+    if data.len() < expected {
         return Err(CascError::Backend {
             op: "spa1: pixel data truncated",
-            code: take as u32,
+            code: data.len() as u32,
         });
     }
 

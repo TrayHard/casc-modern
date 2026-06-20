@@ -9,7 +9,7 @@ use crate::{ApiError, ApiResult, AppState};
 use base64::Engine;
 use casc_core::formats::spa1;
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -185,7 +185,7 @@ fn replace_ext(name: &str, new_ext: &str) -> String {
 fn decode_and_write(
     app: &AppHandle,
     storage_path: &str,
-    out_path: &PathBuf,
+    out_path: &Path,
 ) -> Result<(u32, u64), String> {
     let app_state = app.state::<AppState>();
     let lock = app_state.opened.lock().unwrap();
@@ -204,7 +204,6 @@ fn decode_and_write(
         return Ok((1, png.len() as u64));
     }
 
-    let total_bytes: u64;
     let mut written_bytes: u64 = 0;
     let mut files: u32 = 0;
     for i in 0..sprite.frame_count {
@@ -214,13 +213,12 @@ fn decode_and_write(
         written_bytes += png.len() as u64;
         files += 1;
     }
-    total_bytes = written_bytes;
-    Ok((files, total_bytes))
+    Ok((files, written_bytes))
 }
 
 /// `ring.png` + frame 3 of 12 → `ring_0003.png`. Width of the counter scales
 /// with frame_count so sorting matches frame order.
-fn with_frame_suffix(out_path: &PathBuf, frame: u32, total: u32) -> PathBuf {
+fn with_frame_suffix(out_path: &Path, frame: u32, total: u32) -> PathBuf {
     let digits = total.to_string().len();
     let stem = out_path
         .file_stem()

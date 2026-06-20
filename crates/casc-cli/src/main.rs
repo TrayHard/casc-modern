@@ -96,7 +96,13 @@ fn cmd_list(path: PathBuf, filter: Option<String>, json: bool) -> Result<()> {
         }
         count += 1;
         if json {
-            writeln!(out, "{{\"name\":\"{}\",\"size\":{}}}", f.full_path.replace('"', "\\\""), f.size)?;
+            // Use serde_json to handle escapes properly — D2R paths contain
+            // backslashes, which a hand-rolled escape would silently mangle.
+            let line = serde_json::json!({
+                "name": &f.full_path,
+                "size": f.size,
+            });
+            writeln!(out, "{line}")?;
         } else {
             writeln!(out, "{:>12}  {}", f.size, f.full_path)?;
         }
@@ -127,7 +133,7 @@ fn cmd_extract_all(path: PathBuf, out_dir: PathBuf, filter: Option<String>) -> R
         .filter(|f| {
             needle
                 .as_ref()
-                .map_or(true, |n| f.full_path.to_ascii_lowercase().contains(n))
+                .is_none_or(|n| f.full_path.to_ascii_lowercase().contains(n))
         })
         .collect();
 
