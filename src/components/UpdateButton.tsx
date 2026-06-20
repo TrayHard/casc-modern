@@ -15,6 +15,80 @@ import { entriesNewerThan, parseChangelog } from "../lib/changelog";
 /// the user usually sees a fresh release within minutes of starting work.
 const CHECK_INTERVAL_MS = 20 * 60 * 1000;
 
+/// Render inline `**bold**` / `` `code` `` spans within a changelog line.
+function renderInline(text: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    const tok = m[0];
+    if (tok.startsWith("**")) {
+      out.push(<strong key={key++}>{tok.slice(2, -2)}</strong>);
+    } else {
+      out.push(
+        <code
+          key={key++}
+          style={{ background: "rgba(255,255,255,0.1)", padding: "0 3px", borderRadius: 3 }}
+        >
+          {tok.slice(1, -1)}
+        </code>
+      );
+    }
+    last = m.index + tok.length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+/// Render a Keep-a-Changelog entry body (### headings, `-` bullets, wrapped
+/// lines) as compact JSX. Avoids pulling in a full markdown dependency, which
+/// the webview CSP would also have to allow.
+function renderChangelogBody(body: string): React.ReactNode {
+  type Block = { type: "h" | "li" | "p"; text: string };
+  const blocks: Block[] = [];
+  for (const raw of body.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === "") continue;
+    const h = line.match(/^#{1,6}\s+(.*)$/);
+    if (h) {
+      blocks.push({ type: "h", text: h[1] });
+      continue;
+    }
+    const b = line.match(/^[-*]\s+(.*)$/);
+    if (b) {
+      blocks.push({ type: "li", text: b[1] });
+      continue;
+    }
+    const prev = blocks[blocks.length - 1];
+    if (prev && (prev.type === "li" || prev.type === "p")) {
+      prev.text += " " + line; // continuation of a wrapped bullet/paragraph
+    } else {
+      blocks.push({ type: "p", text: line });
+    }
+  }
+  return blocks.map((bl, i) => {
+    if (bl.type === "h") {
+      return (
+        <div key={i} style={{ fontWeight: 600, marginTop: i ? 6 : 0 }}>
+          {renderInline(bl.text)}
+        </div>
+      );
+    }
+    if (bl.type === "li") {
+      return (
+        <div key={i} style={{ display: "flex", gap: 6 }}>
+          <span style={{ opacity: 0.6 }}>•</span>
+          <span>{renderInline(bl.text)}</span>
+        </div>
+      );
+    }
+    return <div key={i}>{renderInline(bl.text)}</div>;
+  });
+}
+
 /// Public releases page. Used as the manual-download fallback for portable
 /// users (whose running .exe lives outside Program Files and so can't be
 /// silently replaced by the MSI installer the updater runs).
@@ -130,21 +204,16 @@ export function UpdateButton() {
               v{e.version}
               {e.date ? ` — ${e.date}` : ""}
             </div>
-            <div
-              style={{
-                whiteSpace: "pre-wrap",
-                fontSize: 12,
-                opacity: 0.88,
-                marginTop: 2,
-              }}
-            >
-              {e.body}
+            <div style={{ fontSize: 12, opacity: 0.88, marginTop: 2 }}>
+              {renderChangelogBody(e.body)}
             </div>
           </div>
         ))
       ) : (
-        <div style={{ whiteSpace: "pre-wrap", fontSize: 12, opacity: 0.88 }}>
-          {pending.body || `Version ${pending.version} is available.`}
+        <div style={{ fontSize: 12, opacity: 0.88 }}>
+          {renderChangelogBody(
+            pending.body || `Version ${pending.version} is available.`
+          )}
         </div>
       )}
       {!installed && (

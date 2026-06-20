@@ -232,6 +232,30 @@ pub fn run() {
         .setup(|app| {
             let s = Settings::load(app.handle());
             app.manage(SettingsState(Mutex::new(s)));
+
+            // WebView2 consumes Ctrl+F (find bar), Ctrl+P (print), etc. as
+            // browser accelerator keys before the webview's JS sees the
+            // keydown, so the app-level handler can't repurpose Ctrl+F for our
+            // Search panel. Turn the accelerator keys off so those shortcuts
+            // reach the frontend.
+            #[cfg(windows)]
+            {
+                use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+                use windows::core::Interface;
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.with_webview(|webview| unsafe {
+                        let controller = webview.controller();
+                        if let Ok(core) = controller.CoreWebView2() {
+                            if let Ok(settings) = core.Settings() {
+                                if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
+                                    let _ = s3.SetAreBrowserAcceleratorKeysEnabled(false);
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+
             Ok(())
         })
         .manage(AppState::default())
