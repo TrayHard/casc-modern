@@ -12,6 +12,7 @@ import { javascript } from "@codemirror/lang-javascript";
 import { css } from "@codemirror/lang-css";
 import { python } from "@codemirror/lang-python";
 import { api, humanSize } from "../../lib/api";
+import { usePrefs } from "../../lib/prefs";
 import { TooLargeNotice } from "./TooLargeNotice";
 import type { ViewerProps } from "./types";
 
@@ -72,7 +73,13 @@ interface Props extends ViewerProps {
 
 export function CodeViewer({ meta, prettyJson }: Props) {
   const ext = useMemo(() => extOf(meta.path), [meta.path]);
-  const tooLarge = meta.size > CODE_INLINE_LIMIT;
+  const { prefs } = usePrefs();
+  // Hard cap keeps CodeMirror responsive; the user's soft threshold can lower
+  // it further to push big files to an external app sooner.
+  const softLimit = prefs.json_external_threshold_bytes;
+  const effectiveLimit =
+    softLimit > 0 ? Math.min(softLimit, CODE_INLINE_LIMIT) : CODE_INLINE_LIMIT;
+  const tooLarge = meta.size > effectiveLimit;
   const [bytes, setBytes] = useState<number[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [opening, setOpening] = useState(false);
@@ -100,7 +107,9 @@ export function CodeViewer({ meta, prettyJson }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const cmd = e.ctrlKey || e.metaKey;
-      if (cmd && e.key.toLowerCase() === "f") {
+      // e.code (physical key), not e.key — Ctrl+F on a non-Latin layout reports
+      // e.key "а" and would never match "f".
+      if (cmd && e.code === "KeyF") {
         const view = editorViewRef.current;
         if (!view) return;
         e.preventDefault();
@@ -156,7 +165,6 @@ export function CodeViewer({ meta, prettyJson }: Props) {
     try {
       const temp = await api.extractToTemp(meta.path);
       await openPath(temp);
-      message.success(`Opened ${temp}`);
     } catch (e) {
       message.error(`Open failed: ${e}`);
     } finally {
@@ -169,7 +177,7 @@ export function CodeViewer({ meta, prettyJson }: Props) {
       <TooLargeNotice
         path={meta.path}
         size={meta.size}
-        limit={CODE_INLINE_LIMIT}
+        limit={effectiveLimit}
         kind="text"
       />
     );

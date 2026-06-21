@@ -1,9 +1,29 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Layout, Space, Statistic, Typography, message } from "antd";
-import { FolderOpenOutlined, SearchOutlined } from "@ant-design/icons";
+import {
+  Button,
+  Layout,
+  Space,
+  Splitter,
+  Statistic,
+  Typography,
+  message,
+} from "antd";
+import {
+  FolderOpenOutlined,
+  SearchOutlined,
+  SettingOutlined,
+} from "@ant-design/icons";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
-import { api, errMsg, Bookmark, OpenResult, Settings, basename } from "./lib/api";
+import {
+  api,
+  errMsg,
+  Bookmark,
+  DEFAULT_PREFERENCES,
+  OpenResult,
+  Settings,
+  basename,
+} from "./lib/api";
 import { Selection } from "./lib/selection";
 import { StorageTree } from "./components/StorageTree";
 import { DirectoryView } from "./components/DirectoryView";
@@ -13,6 +33,8 @@ import { ContextMenu } from "./components/ContextMenu";
 import { ExportProgressDialog } from "./components/ExportProgressDialog";
 import { BookmarkBar } from "./components/BookmarkBar";
 import { UpdateButton } from "./components/UpdateButton";
+import { SettingsDrawer } from "./components/SettingsDrawer";
+import { PrefsProvider } from "./lib/prefs";
 import { useExporter } from "./lib/useExporter";
 import {
   buildContextMenu,
@@ -21,7 +43,7 @@ import {
   handleMultiContextAction,
 } from "./lib/contextMenuItems";
 
-const { Sider, Content, Header } = Layout;
+const { Header } = Layout;
 const { Text } = Typography;
 
 interface CtxMenuState {
@@ -40,6 +62,7 @@ export default function App() {
   const [treeGen, setTreeGen] = useState(0);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<CtxMenuState | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
 
@@ -124,11 +147,13 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const cmd = e.ctrlKey || e.metaKey;
-      const k = e.key.toLowerCase();
-      const isFind = (cmd && k === "f") || e.key === "F3";
+      // Match the physical key via e.code, not e.key: on a non-Latin layout
+      // (e.g. Russian) Ctrl+F reports e.key "а", so an e.key === "f" check
+      // never fires and the shortcut silently breaks.
+      const isFind = (cmd && e.code === "KeyF") || e.code === "F3";
       // Ctrl/Cmd+F (find), Ctrl+G (find next), F3 / Shift+F3 — all open or
       // navigate the WebView2 Find Bar by default. Block all of them.
-      if (isFind || (cmd && k === "g")) {
+      if (isFind || (cmd && e.code === "KeyG")) {
         e.preventDefault();
       }
       // With a text-like file open, CodeViewer captures Ctrl+F / F3 for its
@@ -228,6 +253,10 @@ export default function App() {
   }, [opened, selection, exporter.exportPath, exporter.exportPaths, onContextMenu]);
 
   return (
+    <PrefsProvider
+      prefs={settings?.preferences}
+      installedLocales={opened?.info.installed_locales ?? 0}
+    >
     <Layout style={{ height: "100vh" }}>
       <Header
         style={{
@@ -267,6 +296,11 @@ export default function App() {
             v{appVersion}
           </Text>
         )}
+        <Button
+          icon={<SettingOutlined />}
+          onClick={() => setSettingsOpen(true)}
+          title="Settings"
+        />
         <UpdateButton />
         {opened && (
           <Space size={24}>
@@ -289,49 +323,57 @@ export default function App() {
           </Space>
         )}
       </Header>
-      <Layout>
-        <Sider
-          width={420}
-          style={{
-            background: "#141414",
-            borderRight: "1px solid #303030",
-            overflow: "hidden",
-          }}
-        >
-          {opened ? (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                height: "100%",
-                minHeight: 0,
-              }}
-            >
-              <BookmarkBar
-                bookmarks={bookmarks}
-                onNavigate={setSelection}
-                onUpdate={updateBookmarks}
-              />
-              <div style={{ flex: 1, minHeight: 0, padding: 8, overflow: "hidden" }}>
-                <StorageTree
-                  generation={treeGen}
-                  selection={selection}
-                  onSelectFile={(p) => setSelection({ kind: "file", path: p })}
-                  onSelectFolder={(p) => setSelection({ kind: "dir", path: p })}
-                  onContextMenu={onContextMenu}
+      <Splitter style={{ flex: 1, minHeight: 0 }}>
+        <Splitter.Panel defaultSize={420} min={240} max="70%">
+          <div
+            style={{
+              height: "100%",
+              background: "#141414",
+              borderRight: "1px solid #303030",
+              overflow: "hidden",
+            }}
+          >
+            {opened ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  height: "100%",
+                  minHeight: 0,
+                }}
+              >
+                <BookmarkBar
+                  bookmarks={bookmarks}
+                  onNavigate={setSelection}
+                  onUpdate={updateBookmarks}
                 />
+                <div
+                  style={{ flex: 1, minHeight: 0, padding: 8, overflow: "hidden" }}
+                >
+                  <StorageTree
+                    generation={treeGen}
+                    selection={selection}
+                    onSelectFile={(p) => setSelection({ kind: "file", path: p })}
+                    onSelectFolder={(p) =>
+                      setSelection({ kind: "dir", path: p })
+                    }
+                    onContextMenu={onContextMenu}
+                  />
+                </div>
               </div>
-            </div>
-          ) : (
-            <Text type="secondary" style={{ padding: 12, display: "block" }}>
-              Open a storage to begin.
-            </Text>
-          )}
-        </Sider>
-        <Content style={{ padding: 12, overflow: "hidden" }}>
-          {rightPanel}
-        </Content>
-      </Layout>
+            ) : (
+              <Text type="secondary" style={{ padding: 12, display: "block" }}>
+                Open a storage to begin.
+              </Text>
+            )}
+          </div>
+        </Splitter.Panel>
+        <Splitter.Panel min={360}>
+          <div style={{ padding: 12, height: "100%", overflow: "hidden" }}>
+            {rightPanel}
+          </div>
+        </Splitter.Panel>
+      </Splitter>
       <SearchDrawer
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
@@ -353,6 +395,13 @@ export default function App() {
         onCancel={exporter.cancel}
         onDismiss={exporter.dismissDone}
       />
+      <SettingsDrawer
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        preferences={settings?.preferences ?? DEFAULT_PREFERENCES}
+        onSaved={refreshSettings}
+      />
     </Layout>
+    </PrefsProvider>
   );
 }

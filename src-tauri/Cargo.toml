@@ -15,7 +15,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 casc-core = { workspace = true }
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-opener = "2"
@@ -32,6 +32,7 @@ regex = { workspace = true }
 globset = { workspace = true }
 memchr = { workspace = true }
 base64 = { workspace = true }
+image = { workspace = true }
 
 # WebView2 grabs Ctrl+F (find bar) etc. as browser accelerator keys before the
 # frontend sees them. We disable that via the raw WebView2 settings so those

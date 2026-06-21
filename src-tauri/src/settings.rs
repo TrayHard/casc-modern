@@ -11,7 +11,7 @@ use tauri::{AppHandle, Manager};
 /// Bumped whenever this struct gains a field that can't be defaulted from
 /// an older settings.json. Always written; ignored on read unless we add a
 /// migration step in [`Settings::load`].
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -24,6 +24,8 @@ pub struct Settings {
     pub recent_storages: Vec<String>,
     /// User-pinned shortcuts to files/folders inside the storage.
     pub bookmarks: Vec<Bookmark>,
+    /// User-facing preferences (the Settings panel).
+    pub preferences: Preferences,
 }
 
 impl Default for Settings {
@@ -34,6 +36,7 @@ impl Default for Settings {
             last_export_dir: None,
             recent_storages: Vec::new(),
             bookmarks: Vec::new(),
+            preferences: Preferences::default(),
         }
     }
 }
@@ -45,15 +48,69 @@ pub struct Bookmark {
     pub is_dir: bool,
 }
 
+/// User-facing preferences. Kept separate from the app-state fields above so the
+/// settings drawer can replace them wholesale without clobbering
+/// last_storage_path / bookmarks / recents.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Preferences {
+    /// Files larger than this (bytes) get an "open externally" prompt in the
+    /// JSON/text viewers instead of loading inline. 0 disables the prompt.
+    pub json_external_threshold_bytes: u64,
+    /// Decoded mini previews for image files in the tree (else format icons).
+    pub thumbnails_in_tree: bool,
+    /// Decoded mini previews in the directory (right-panel) list.
+    pub thumbnails_in_browser: bool,
+    /// Hide files/folders whose locale differs from the storage's installed one.
+    pub hide_other_locales: bool,
+    /// Active format-icon theme name ("default" = built-in).
+    pub icon_theme: String,
+    /// User-imported icon themes (opaque JSON owned by the frontend).
+    pub custom_icon_themes: Vec<serde_json::Value>,
+    /// Extra rows/columns rendered beyond the viewport in virtualized grids
+    /// (the TSV table). Higher = fewer blanks while fast-scrolling, more work.
+    pub table_overscan: u32,
+    /// Hide `*.lowend.sprite` low-quality variants from the tree and the
+    /// directory list (the high-quality `.sprite` stays; the viewer can still
+    /// switch quality).
+    pub hide_lowend: bool,
+}
+
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            json_external_threshold_bytes: 2 * 1024 * 1024,
+            thumbnails_in_tree: true,
+            thumbnails_in_browser: true,
+            hide_other_locales: false,
+            icon_theme: "default".to_string(),
+            custom_icon_themes: Vec::new(),
+            table_overscan: 16,
+            hide_lowend: true,
+        }
+    }
+}
+
 impl Settings {
     pub fn load(app: &AppHandle) -> Self {
-        match settings_file(app) {
+        let mut s: Settings = match settings_file(app) {
             Ok(path) if path.exists() => std::fs::read_to_string(&path)
                 .ok()
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or_default(),
             _ => Self::default(),
+        };
+        // Version-specific migrations: force each new default only the first
+        // time it's introduced, so we don't clobber later user customization.
+        if s.schema_version < 3 {
+            s.preferences.json_external_threshold_bytes = 2 * 1024 * 1024;
+            s.preferences.table_overscan = 16;
         }
+        if s.schema_version < 4 {
+            s.preferences.hide_lowend = true;
+        }
+        s.schema_version = CURRENT_SCHEMA_VERSION;
+        s
     }
 
     pub fn save(&self, app: &AppHandle) -> std::io::Result<()> {

@@ -30,3 +30,40 @@ html, body, #root {
 .dv-row-selected:hover > td.ant-table-cell {
   background-color: rgba(22, 119, 255, 0.32) !important;
 }
+/* Clear hover indication on directory rows (skip already-selected ones). */
+.dv-table .ant-table-tbody > tr:not(.dv-row-selected):hover > td.ant-table-cell {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Storage tree: single-line, non-selectable entries. Horizontal scrolling is
+   driven by the Tree's `scrollWidth` prop (rc-virtual-list keeps its own thin
+   scrollbar), so no CSS overflow tricks here. */
+.storage-tree {
+  user-select: none;
+}
+.storage-tree .ant-tree-node-content-wrapper {
+  white-space: nowrap;
+}
+
+/* Thin, dark scrollbars for native scroll areas (TSV grid, directory table). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

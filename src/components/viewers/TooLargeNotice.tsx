@@ -22,7 +22,6 @@ export function TooLargeNotice({ path, size, limit, kind }: Props) {
     try {
       const temp = await api.extractToTemp(path);
       await openPath(temp);
-      message.success(`Opened ${temp}`);
     } catch (e) {
       message.error(`Open failed: ${e}`);
     } finally {

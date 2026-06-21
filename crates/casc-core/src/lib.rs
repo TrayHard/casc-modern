@@ -46,6 +46,9 @@ pub struct StorageInfo {
     pub local_file_count: u32,
     pub total_file_count: u32,
     pub features: u32,
+    /// Bitmask of locales installed in this storage (CASC_LOCALE_*). Used to
+    /// decide which per-file locale flags count as "the user's locale".
+    pub installed_locales: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -58,6 +61,12 @@ pub struct Entry {
     pub size: u64,
     /// True when the entry is a CKey/EKey/FileDataId fake name (not a real name).
     pub is_synthetic_name: bool,
+    /// True when the file's data is present in the local storage. CascLib marks
+    /// indexed-but-not-downloaded files (other locales, on-demand video) as
+    /// unavailable; reading them fails.
+    pub available: bool,
+    /// Per-file locale bitmask (CASC_FIND_DATA.dwLocaleFlags). 0 = locale-neutral.
+    pub locale_flags: u32,
 }
 
 /// Opened CASC storage handle. RAII-closed on drop.
@@ -109,6 +118,9 @@ impl Storage {
         let features = self
             .get_storage_dword(sys::CASC_STORAGE_INFO_CLASS::CascStorageFeatures)
             .unwrap_or(0);
+        let installed_locales = self
+            .get_storage_dword(sys::CASC_STORAGE_INFO_CLASS::CascStorageInstalledLocales)
+            .unwrap_or(0);
 
         let mut product: sys::CASC_STORAGE_PRODUCT = unsafe { std::mem::zeroed() };
         let mut needed: usize = 0;
@@ -137,6 +149,7 @@ impl Storage {
             local_file_count,
             total_file_count,
             features,
+            installed_locales,
         })
     }
 
@@ -283,7 +296,7 @@ impl Storage {
     pub fn build_index(&self) -> Result<FileIndex> {
         let mut idx = FileIndex::default();
         self.walk(|e| {
-            idx.add(e.full_path, e.size);
+            idx.add(e.full_path, e.size, e.available, e.locale_flags);
             true
         })?;
         idx.finalize();
@@ -327,6 +340,8 @@ fn find_data_to_entry(f: &sys::CASC_FIND_DATA) -> Entry {
         is_dir: false,
         size: f.FileSize,
         is_synthetic_name: f.NameType != 0, // 0 = CascNameFull
+        available: f.bFileAvailable != 0,
+        locale_flags: f.dwLocaleFlags,
     }
 }
 
@@ -365,13 +380,31 @@ impl FileKind {
             return Self::Image;
         }
         let prefix_len = bytes.len().min(512);
-        if bytes[..prefix_len]
-            .iter()
-            .all(|&b| b == b'\t' || b == b'\n' || b == b'\r' || (0x20..0x7F).contains(&b))
-        {
+        if looks_textual(&bytes[..prefix_len]) {
             Self::Text
         } else {
             Self::Binary
         }
     }
+}
+
+/// Heuristic: is this prefix human-readable text? Accepts valid UTF-8 (so
+/// localized JSON with CJK/accented characters counts as text, not binary),
+/// tolerating a trailing multibyte char cut off by the 512-byte read, and a
+/// leading UTF-8 BOM. Rejects control bytes other than tab/newline/CR.
+fn looks_textual(prefix: &[u8]) -> bool {
+    let bytes = prefix
+        .strip_prefix(&[0xEF, 0xBB, 0xBF])
+        .unwrap_or(prefix);
+    let valid = match std::str::from_utf8(bytes) {
+        Ok(_) => bytes.len(),
+        Err(e) => e.valid_up_to(),
+    };
+    // Invalid UTF-8 well before the end means it isn't truncation — it's binary.
+    if bytes.len().saturating_sub(valid) > 3 {
+        return false;
+    }
+    bytes[..valid].iter().all(|&b| {
+        b == b'\t' || b == b'\n' || b == b'\r' || (0x20..0x7F).contains(&b) || b >= 0x80
+    })
 }

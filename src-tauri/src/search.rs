@@ -35,6 +35,7 @@ pub fn search_names(
     query: String,
     use_regex: bool,
     limit: u32,
+    local_only: bool,
 ) -> ApiResult<Vec<NameHit>> {
     let lock = state.opened.lock().expect("opened storage lock poisoned");
     let opened = lock
@@ -56,7 +57,10 @@ pub fn search_names(
             }
         }
     }
-    for (path, _storage, size) in opened.index.iter_files() {
+    for (path, _storage, size, available) in opened.index.iter_files() {
+        if local_only && !available {
+            continue;
+        }
         if matcher.is_match(path) {
             out.push(NameHit { path: path.to_string(), is_dir: false, size });
             if out.len() >= cap {
@@ -136,6 +140,7 @@ pub async fn search_content(
     glob: Option<String>,
     max_file_size: u32,
     case_insensitive: bool,
+    local_only: bool,
 ) -> ApiResult<u32> {
     if query.is_empty() {
         return Err(ApiError { message: "query is empty".into() });
@@ -159,11 +164,12 @@ pub async fn search_content(
         opened
             .index
             .iter_files()
-            .filter(|(p, _, size)| {
-                *size as u64 <= max_file_size as u64
+            .filter(|(p, _, size, available)| {
+                (!local_only || *available)
+                    && *size as u64 <= max_file_size as u64
                     && glob_matcher.as_ref().is_none_or(|g| g.is_match(p))
             })
-            .map(|(p, s, sz)| (p.to_string(), s.to_string(), sz))
+            .map(|(p, s, sz, _)| (p.to_string(), s.to_string(), sz))
             .collect()
     };
     let total = candidates.len() as u32;

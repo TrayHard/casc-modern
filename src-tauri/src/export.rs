@@ -64,7 +64,7 @@ fn collect_tasks(opened: &Opened, virtual_path: &str, under_basename: bool) -> V
     let dir_name = trimmed.rsplit('/').next().unwrap_or(trimmed).to_string();
 
     let mut out = Vec::new();
-    for (norm_path, storage_path, size) in opened.index.iter_files() {
+    for (norm_path, storage_path, size, _avail) in opened.index.iter_files() {
         let rel = if prefix.is_empty() {
             Some(norm_path.to_string())
         } else {

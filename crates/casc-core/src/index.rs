@@ -22,6 +22,14 @@ pub struct IndexEntry {
     pub storage_path: Option<String>,
     pub is_dir: bool,
     pub size: u64,
+    /// Whether the file's data is present locally. Directories are always
+    /// `true`; files reflect CascLib's `bFileAvailable`.
+    pub local: bool,
+    /// Locale bitmask. For files: CASC_FIND_DATA.dwLocaleFlags (0 = neutral).
+    /// For directories: the OR of all descendant files' flags, with neutral
+    /// descendants forcing `0xFFFFFFFF` ("universally relevant"). The frontend
+    /// hides an entry when `flags != 0 && (flags & installed_locales) == 0`.
+    pub locale_flags: u32,
 }
 
 #[derive(Debug, Default)]
@@ -30,6 +38,8 @@ pub struct FileIndex {
     /// Reverse lookup: normalized file path -> original storage path.
     /// Used so the frontend can refer to files by normalized path.
     storage_paths: HashMap<String, FileRecord>,
+    /// Aggregated locale bitmask per directory (see [`IndexEntry::locale_flags`]).
+    dir_locale: HashMap<String, u32>,
 }
 
 #[derive(Debug, Default)]
@@ -42,12 +52,14 @@ struct DirContent {
 struct FileRecord {
     storage_path: String,
     size: u64,
+    available: bool,
+    locale_flags: u32,
 }
 
 impl FileIndex {
     /// Register a file in the index. Idempotent for duplicate paths — later
     /// records win, matching CascLib's "open by name" behavior.
-    pub fn add(&mut self, storage_path: String, size: u64) {
+    pub fn add(&mut self, storage_path: String, size: u64, available: bool, locale_flags: u32) {
         // CascLib enumerates VFS-root pseudo-files like "data:" or "hd:" —
         // descriptors with no real path. They share a name with the product
         // directory created from real paths like "data:data\foo.txt", so they
@@ -70,9 +82,18 @@ impl FileIndex {
             self.by_dir.entry(parent).or_default().subdirs.insert(child);
         }
 
+        // Aggregate locale coverage up the directory chain so the UI can hide
+        // folders that hold nothing for the user's locale. A neutral file
+        // (flags == 0) marks every ancestor as universally relevant.
+        let contrib = if locale_flags == 0 { 0xFFFF_FFFF } else { locale_flags };
+        for k in 0..segments.len() {
+            let prefix: String = segments[..k].join("/");
+            *self.dir_locale.entry(prefix).or_insert(0) |= contrib;
+        }
+
         let parent: String = segments[..segments.len() - 1].join("/");
         let file_name = segments.last().unwrap().to_string();
-        let record = FileRecord { storage_path, size };
+        let record = FileRecord { storage_path, size, available, locale_flags };
         self.by_dir
             .entry(parent.clone())
             .or_default()
@@ -108,6 +129,12 @@ impl FileIndex {
                 storage_path: None,
                 is_dir: true,
                 size: 0,
+                local: true,
+                locale_flags: self
+                    .dir_locale
+                    .get(&format!("{prefix}{name}"))
+                    .copied()
+                    .unwrap_or(0),
             })
             .collect();
         out.extend(content.files.iter().map(|(name, rec)| IndexEntry {
@@ -116,6 +143,8 @@ impl FileIndex {
             storage_path: Some(rec.storage_path.clone()),
             is_dir: false,
             size: rec.size,
+            local: rec.available,
+            locale_flags: rec.locale_flags,
         }));
         out
     }
@@ -158,12 +187,12 @@ impl FileIndex {
         self.by_dir.len()
     }
 
-    /// Iterate `(normalized_path, storage_path, size)` for every file. Order is
-    /// unspecified; callers that need ordering should sort.
-    pub fn iter_files(&self) -> impl Iterator<Item = (&str, &str, u64)> {
+    /// Iterate `(normalized_path, storage_path, size, available)` for every
+    /// file. Order is unspecified; callers that need ordering should sort.
+    pub fn iter_files(&self) -> impl Iterator<Item = (&str, &str, u64, bool)> {
         self.storage_paths
             .iter()
-            .map(|(p, r)| (p.as_str(), r.storage_path.as_str(), r.size))
+            .map(|(p, r)| (p.as_str(), r.storage_path.as_str(), r.size, r.available))
     }
 
     /// Iterate every directory's normalized path. `""` for the root.
@@ -184,14 +213,14 @@ mod tests {
     #[test]
     fn root_then_nested() {
         let mut idx = FileIndex::default();
-        idx.add("data:data\\global\\excel\\levels.txt".into(), 80_000);
-        idx.add("data:data\\global\\excel\\misc.txt".into(), 1234);
-        idx.add("hd:hd\\pl_lit2.tex".into(), 42);
+        idx.add("data:data\\global\\excel\\levels.txt".into(), 80_000, true, 0);
+        idx.add("data:data\\global\\excel\\misc.txt".into(), 1234, true, 0);
+        idx.add("hd:hd\\pl_lit2.tex".into(), 42, true, 0);
         // VFS pseudo-files that share a name with the product directory.
         // Without filtering these would collide in the tree and produce
         // duplicate-key React warnings + visual duplication.
-        idx.add("data:".into(), 11_000_000);
-        idx.add("hd:".into(), 9_000_000);
+        idx.add("data:".into(), 11_000_000, true, 0);
+        idx.add("hd:".into(), 9_000_000, true, 0);
         idx.finalize();
 
         let root = idx.list("");

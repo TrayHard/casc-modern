@@ -4,6 +4,89 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Format & folder icons** in the tree and the directory list, driven by a
+  single swappable icon palette (`src/lib/fileIcons.tsx`) rather than hardcoded
+  per-call-site conditionals — groundwork for future theming.
+- **Image viewers for standard raster formats** (`.tga`, `.bmp`, `.png`,
+  `.jpg`) decoded in Rust via the `image` crate, with the same percent-zoom
+  controls as the sprite viewer.
+- **Mini thumbnails in the tree** for image-like files (sprites + the raster
+  formats above): the first sprite frame or a downscaled image, decoded lazily
+  for visible nodes only, cached, and capped by file size — with the format
+  icon as a fallback.
+- **"Not downloaded" indicator**: files that are indexed but whose data isn't
+  present in the local storage (other locales, on-demand cinematics) are dimmed
+  and tagged with a cloud icon in both the tree and the directory list, using
+  CascLib's per-file availability flag.
+- **App settings panel** (gear in the header) — persisted preferences for: the
+  JSON/text size threshold above which files open externally instead of inline;
+  image thumbnails in the tree; image thumbnails in the directory list; hiding
+  other-locale files/folders; and the format-icon theme.
+- **Icon themes**: the default palette plus a built-in monochrome theme, and
+  import of custom themes from a JSON file (glyph vocabulary + per-extension
+  colors). Applies live.
+- **TSV table viewer**: D2R's tab-separated `.txt` tables render as a sortable,
+  both-axis–virtualized grid with a row filter and resizable columns; non-tabular
+  text falls back to the Text tab.
+- **Hide other locales**: a setting filters files/folders whose locale doesn't
+  match the storage's installed locale, using per-file `dwLocaleFlags` and a
+  per-directory aggregated mask.
+- **DC6 viewer** for classic Diablo II graphics (`.dc6`): frame stepping, zoom
+  with Fit/1:1, and a palette picker (default "units"); decoded and
+  palette-applied in Rust (index 0 transparent).
+- **Copy name** in the right-click menu (alongside Copy path).
+- **Shift-click a folder's collapse arrow** to also collapse every nested
+  folder under it.
+- **Search "only downloaded files"** filter (on by default) skips
+  indexed-but-not-downloaded files in both name and content search.
+- **Hide low-quality sprites** setting (on by default) drops the
+  `*.lowend.sprite` duplicates (every sprite ships a high + lowend pair, 1:1);
+  the sprite viewer gained a **High / Low** quality toggle to switch in place.
+
+### Changed
+- **Image / sprite / DC6 viewers** open at 100% zoom with **Fit** / **1:1**
+  controls (plain buttons, even-height info pills, no frame around the image)
+  and zoom from 1%.
+- **Defaults**: JSON/text external-open threshold is now 2 MB and the table-grid
+  overscan is 16 (existing settings are migrated up on launch).
+- **DC6 / sprite previews** now appear as mini icons in the tree and directory
+  list, and `.dc6` can be exported as PNG (right-click → Export as PNG, or the
+  button in the viewer; multi-frame files export one PNG per frame).
+- **Settings** moved into **General** / **Performance** tabs; the Performance
+  tab holds the JSON/text external-open threshold and a table-grid overscan.
+- **Resizable layout**: the divider between the tree and the right panel can be
+  dragged (with sensible min sizes).
+- **Storage tree** keeps each entry on a single line, scrolls horizontally for
+  long names, and disallows text selection. Rows are kept cheap (precomputed
+  icons, no per-node Tooltips/animation) so virtual scrolling stays smooth, and
+  the connector lines were dropped.
+- **Directory rows** darken on hover for clearer cursor indication; native
+  scroll areas (TSV grid, directory table) use thin dark scrollbars.
+- **Bookmarks / navigation** center the target node in the tree (and expand the
+  folder) instead of leaving it at the bottom edge.
+- **TSV table viewer** rewritten on `@tanstack/react-virtual` with **both-axis
+  virtualization** (antd's table renders every column, which janked on D2R's
+  100+-column tables); adds click-to-sort, a row filter, resizable columns, and
+  fits the height so the window edge stays visible.
+
+### Removed
+- **`.dds` preview.** Almost all of D2R's `.dds` are 3D volume textures (color
+  LUTs, hair volumes) that don't read as 2D images; the dedicated decoder and
+  dependency were removed. `.dds` now opens in the Hex view only.
+
+### Fixed
+- Binary files with a JSON-ish extension (e.g. a binary `.particles`) no longer
+  open in the JSON/Text tabs — those viewers now require a text content sniff.
+- **Localized JSON opens as JSON again.** The text sniff now accepts valid
+  UTF-8 (and a leading BOM), so strings files with CJK/accented characters are
+  no longer misclassified as binary and hidden behind the Hex-only view.
+- **UI no longer freezes ("Not responding") while decoding a large image** —
+  sprite/image/thumbnail decoding moved off the UI thread (async +
+  `spawn_blocking`).
+
 ## [0.1.6] - 2026-06-21
 
 ### Fixed

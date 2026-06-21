@@ -24,6 +24,7 @@ import {
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import {
   api,
+  errMsg,
   ContentHit,
   NameHit,
   SearchDone,
@@ -58,6 +59,8 @@ export function SearchDrawer({ open, onClose, onNavigate }: Props) {
   const [nameRegex, setNameRegex] = useState(false);
   const [nameHits, setNameHits] = useState<NameHit[]>([]);
   const [nameLoading, setNameLoading] = useState(false);
+  // Shared by both tabs: skip indexed-but-not-downloaded (online-only) files.
+  const [localOnly, setLocalOnly] = useState(true);
 
   useEffect(() => {
     if (!open || tab !== "name") return;
@@ -69,12 +72,12 @@ export function SearchDrawer({ open, onClose, onNavigate }: Props) {
     setNameLoading(true);
     const handle = setTimeout(() => {
       api
-        .searchNames(nameQuery, nameRegex, 500)
+        .searchNames(nameQuery, nameRegex, 500, localOnly)
         .then((hits) => {
           if (!cancelled) setNameHits(hits);
         })
         .catch((e) => {
-          if (!cancelled) message.error(`Search failed: ${e}`);
+          if (!cancelled) message.error(`Search failed: ${errMsg(e)}`);
         })
         .finally(() => {
           if (!cancelled) setNameLoading(false);
@@ -84,7 +87,7 @@ export function SearchDrawer({ open, onClose, onNavigate }: Props) {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [nameQuery, nameRegex, open, tab]);
+  }, [nameQuery, nameRegex, localOnly, open, tab]);
 
   // --- content search state ---
   const [contentQuery, setContentQuery] = useState("");
@@ -136,10 +139,11 @@ export function SearchDrawer({ open, onClose, onNavigate }: Props) {
         contentQuery,
         contentGlob.trim() || null,
         contentMaxSize * 1024 * 1024,
-        contentCI
+        contentCI,
+        localOnly
       );
     } catch (e) {
-      message.error(`Search failed: ${e}`);
+      message.error(`Search failed: ${errMsg(e)}`);
       setRunning(false);
       setProgress(null);
     }
@@ -149,7 +153,7 @@ export function SearchDrawer({ open, onClose, onNavigate }: Props) {
     try {
       await api.cancelSearch();
     } catch (e) {
-      message.error(`Cancel failed: ${e}`);
+      message.error(`Cancel failed: ${errMsg(e)}`);
     }
   }
 
@@ -189,6 +193,12 @@ export function SearchDrawer({ open, onClose, onNavigate }: Props) {
                   onChange={(e) => setNameRegex(e.target.checked)}
                 >
                   Regex (case-insensitive)
+                </Checkbox>
+                <Checkbox
+                  checked={localOnly}
+                  onChange={(e) => setLocalOnly(e.target.checked)}
+                >
+                  Only downloaded files
                 </Checkbox>
                 <Text type="secondary">
                   {nameHits.length} result{nameHits.length === 1 ? "" : "s"}
@@ -261,6 +271,13 @@ export function SearchDrawer({ open, onClose, onNavigate }: Props) {
                     disabled={running}
                   >
                     Case-insensitive
+                  </Checkbox>
+                  <Checkbox
+                    checked={localOnly}
+                    onChange={(e) => setLocalOnly(e.target.checked)}
+                    disabled={running}
+                  >
+                    Only downloaded files
                   </Checkbox>
                 </Space>
                 <Space>

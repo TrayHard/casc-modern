@@ -52,6 +52,15 @@ enum Cmd {
         storage: PathBuf,
         file: String,
     },
+    /// Decode a .dc6 frame to PNG using a palette (debug).
+    Dc6Debug {
+        storage: PathBuf,
+        file: String,
+        #[arg(long, default_value = "data/data/global/palette/units/pal.dat")]
+        palette: String,
+        #[arg(short, long, default_value = "dc6-debug.png")]
+        out: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -67,6 +76,9 @@ fn main() -> Result<()> {
         Cmd::Extract { storage, file, out } => cmd_extract(storage, file, out),
         Cmd::ExtractAll { storage, out, filter } => cmd_extract_all(storage, out, filter),
         Cmd::Cat { storage, file } => cmd_cat(storage, file),
+        Cmd::Dc6Debug { storage, file, palette, out } => {
+            cmd_dc6_debug(storage, file, palette, out)
+        }
     }
 }
 
@@ -160,3 +172,25 @@ fn cmd_cat(path: PathBuf, file: String) -> Result<()> {
     std::io::stdout().write_all(&bytes)?;
     Ok(())
 }
+
+fn cmd_dc6_debug(storage: PathBuf, file: String, palette: String, out: PathBuf) -> Result<()> {
+    let s = Storage::open(&storage)?;
+    let idx = s.build_index()?;
+    let (sp, _) = idx.resolve(&file).context("dc6 not in index")?;
+    let d = casc_core::formats::dc6::decode(&s.read(&sp)?)?;
+    eprintln!("dirs {} fpd {} frames {}", d.directions, d.frames_per_dir, d.frames.len());
+    let (psp, _) = idx.resolve(&palette).context("palette not in index")?;
+    let pal = casc_core::formats::dc6::parse_dat_palette(&s.read(&psp)?)?;
+    let f = &d.frames[0];
+    eprintln!(
+        "frame0 {}x{} offset ({},{})",
+        f.width, f.height, f.offset_x, f.offset_y
+    );
+    let rgba = casc_core::formats::dc6::to_rgba(f, &pal);
+    image::RgbaImage::from_raw(f.width, f.height, rgba)
+        .context("bad rgba dims")?
+        .save(&out)?;
+    eprintln!("saved -> {}", out.display());
+    Ok(())
+}
+

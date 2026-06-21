@@ -5,7 +5,7 @@ mod sprites;
 
 use casc_core::{FileIndex, FileKind, IndexEntry, Storage, StorageInfo};
 use serde::Serialize;
-use settings::{Bookmark, Settings, SettingsState};
+use settings::{Bookmark, Preferences, Settings, SettingsState};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::Manager;
@@ -136,8 +136,11 @@ fn get_file_meta(state: tauri::State<'_, AppState>, path: String) -> ApiResult<F
         .index
         .resolve(&path)
         .ok_or_else(|| ApiError { message: format!("not in index: {path}") })?;
-    // Sniff without reading content — extension-based only.
-    let kind = FileKind::sniff(&path, &[]);
+    // Read a small prefix so the sniff can tell binary from text. Extension /
+    // magic alone falls back to Text for everything unrecognized, which put a
+    // useless "Text" tab on .flac/.webm/.sprite and other binary formats.
+    let prefix = opened.storage.read_n(&storage_path, 512).unwrap_or_default();
+    let kind = FileKind::sniff(&path, &prefix);
     Ok(FileMeta { path, storage_path, size, kind })
 }
 
@@ -213,6 +216,27 @@ fn set_bookmarks(
     Ok(())
 }
 
+#[tauri::command]
+fn set_preferences(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SettingsState>,
+    preferences: Preferences,
+) -> ApiResult<()> {
+    let mut s = state.0.lock().expect("settings lock poisoned");
+    s.preferences = preferences;
+    s.save(&app)
+        .map_err(|e| ApiError { message: e.to_string() })?;
+    Ok(())
+}
+
+/// Read a small UTF-8 text file from disk (used for importing icon themes the
+/// user picks via the open dialog).
+#[tauri::command]
+fn read_text_file(path: String) -> ApiResult<String> {
+    std::fs::read_to_string(&path)
+        .map_err(|e| ApiError { message: format!("read {path}: {e}") })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
@@ -270,6 +294,8 @@ pub fn run() {
             get_settings,
             set_last_export_dir,
             set_bookmarks,
+            set_preferences,
+            read_text_file,
             extract_to_temp,
             is_installed,
             search::search_names,
@@ -279,6 +305,9 @@ pub fn run() {
             export::export_paths,
             export::cancel_export,
             sprites::decode_sprite,
+            sprites::decode_dc6,
+            sprites::decode_image,
+            sprites::thumbnail,
             sprites::export_path_as_png,
         ])
         .run(tauri::generate_context!())

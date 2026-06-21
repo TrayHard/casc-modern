@@ -31,7 +31,7 @@ bytes = "1"
 regex = "1"
 globset = "0.4"
 memchr = "2"
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "tga", "bmp"] }
 base64 = "0.22"
 
 [profile.release]

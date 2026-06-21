@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, Space, Table, Tag, Typography, message } from "antd";
 import type { TableProps } from "antd";
 import {
+  CloudOutlined,
   ExportOutlined,
-  FileOutlined,
-  FolderOutlined,
   RollbackOutlined,
 } from "@ant-design/icons";
+import { ThumbIcon } from "./ThumbIcon";
+import { isForeignLocale, isLowend, usePrefs } from "../lib/prefs";
 import { api, errMsg, IndexEntry, humanSize, parentPath } from "../lib/api";
 import type { Selection } from "../lib/selection";
 
@@ -33,6 +34,7 @@ type Row = {
   name: string;
   path: string;
   size: number;
+  local: boolean;
 };
 
 type SortState = { columnKey: "name" | "size"; order: "ascend" | "descend" };
@@ -52,6 +54,18 @@ export function DirectoryView({
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [anchorKey, setAnchorKey] = useState<string | null>(null);
   const [sortState, setSortState] = useState<SortState>(DEFAULT_SORT);
+
+  const { prefs, installedLocales } = usePrefs();
+  const visibleEntries = useMemo(() => {
+    let out = entries;
+    if (prefs.hide_other_locales) {
+      out = out.filter((e) => !isForeignLocale(e.locale_flags, installedLocales));
+    }
+    if (prefs.hide_lowend) {
+      out = out.filter((e) => e.is_dir || !isLowend(e.name));
+    }
+    return out;
+  }, [entries, prefs.hide_other_locales, prefs.hide_lowend, installedLocales]);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,19 +100,21 @@ export function DirectoryView({
         name: "..",
         path: parentPath(path),
         size: 0,
+        local: true,
       });
     }
-    for (const e of entries) {
+    for (const e of visibleEntries) {
       out.push({
         key: e.path,
         kind: e.is_dir ? "dir" : "file",
         name: e.name,
         path: e.path,
         size: e.size,
+        local: e.local,
       });
     }
     return out;
-  }, [entries, path]);
+  }, [visibleEntries, path]);
 
   // We sort the data ourselves (columns use `sorter: true`, i.e. controlled)
   // so the on-screen order is known here — Shift-range selection walks exactly
@@ -208,8 +224,8 @@ export function DirectoryView({
       >
         <Text strong>📁 {path || "<root>"}</Text>
         <Text type="secondary">
-          ({entries.filter((e) => !e.is_dir).length} files,{" "}
-          {entries.filter((e) => e.is_dir).length} folders
+          ({visibleEntries.filter((e) => !e.is_dir).length} files,{" "}
+          {visibleEntries.filter((e) => e.is_dir).length} folders
           {selectedCount > 0 ? ` · ${selectedCount} selected` : ""})
         </Text>
         <div style={{ flex: 1 }} />
@@ -234,6 +250,7 @@ export function DirectoryView({
         </Space>
       </div>
       <Table<Row>
+        className="dv-table"
         size="small"
         loading={loading}
         dataSource={displayRows}
@@ -266,14 +283,33 @@ export function DirectoryView({
             title: "Name",
             dataIndex: "name",
             key: "name",
-            render: (_v, row) => (
-              <span>
-                {row.kind === "up" && <RollbackOutlined style={{ marginRight: 6 }} />}
-                {row.kind === "dir" && <FolderOutlined style={{ marginRight: 6 }} />}
-                {row.kind === "file" && <FileOutlined style={{ marginRight: 6 }} />}
-                {row.name}
-              </span>
-            ),
+            render: (_v, row) => {
+              const notLocal = row.kind === "file" && !row.local;
+              return (
+                <span style={notLocal ? { opacity: 0.4 } : undefined}>
+                  <span style={{ marginRight: 6 }}>
+                    {row.kind === "up" ? (
+                      <RollbackOutlined />
+                    ) : (
+                      <ThumbIcon
+                        name={row.name}
+                        path={row.path}
+                        isDir={row.kind === "dir"}
+                        size={row.size}
+                        where="browser"
+                      />
+                    )}
+                  </span>
+                  {row.name}
+                  {notLocal && (
+                    <CloudOutlined
+                      style={{ marginLeft: 6 }}
+                      title="Not downloaded"
+                    />
+                  )}
+                </span>
+              );
+            },
             sorter: true,
             sortOrder: sortState.columnKey === "name" ? sortState.order : null,
             sortDirections: ["ascend", "descend"],

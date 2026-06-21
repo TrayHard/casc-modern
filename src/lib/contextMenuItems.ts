@@ -2,7 +2,7 @@ import type { ItemType } from "antd/es/menu/interface";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { message } from "antd";
-import { api, errMsg } from "./api";
+import { api, basename, errMsg } from "./api";
 import type { Selection } from "./selection";
 
 export interface ContextActions {
@@ -19,8 +19,9 @@ interface BuildArgs {
   isBookmarked: boolean;
 }
 
-function isSprite(path: string): boolean {
-  return path.toLowerCase().endsWith(".sprite");
+function isPngExportable(path: string): boolean {
+  const p = path.toLowerCase();
+  return p.endsWith(".sprite") || p.endsWith(".dc6");
 }
 
 /// Build the antd Menu items list for either a file or a directory target.
@@ -40,10 +41,14 @@ export function buildContextMenu({ target, isBookmarked }: BuildArgs): ItemType[
       { type: "divider" },
       { key: "export", label: "Export file…" },
     ];
-    if (isSprite(target.path)) {
+    if (isPngExportable(target.path)) {
       items.push({ key: "export-png", label: "Export as PNG…" });
     }
-    items.push({ type: "divider" }, { key: "copy-path", label: "Copy path" });
+    items.push(
+      { type: "divider" },
+      { key: "copy-path", label: "Copy path" },
+      { key: "copy-name", label: "Copy name" }
+    );
     return items;
   }
   return [
@@ -52,9 +57,10 @@ export function buildContextMenu({ target, isBookmarked }: BuildArgs): ItemType[
     bookmarkItem,
     { type: "divider" },
     { key: "export", label: "Export folder…" },
-    { key: "export-png", label: "Export sprites here as PNG…" },
+    { key: "export-png", label: "Export graphics here as PNG…" },
     { type: "divider" },
     { key: "copy-path", label: target.path ? "Copy path" : "Copy '<root>'" },
+    { key: "copy-name", label: "Copy name" },
   ];
 }
 
@@ -119,6 +125,14 @@ export async function handleContextAction(
       try {
         await writeText(target.path);
         message.success("Path copied");
+      } catch (e) {
+        message.error(`Clipboard failed: ${errMsg(e)}`);
+      }
+      return;
+    case "copy-name":
+      try {
+        await writeText(basename(target.path) || "<root>");
+        message.success("Name copied");
       } catch (e) {
         message.error(`Clipboard failed: ${errMsg(e)}`);
       }

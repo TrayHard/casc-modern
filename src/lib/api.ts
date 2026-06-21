@@ -6,6 +6,8 @@ export type StorageInfo = {
   local_file_count: number;
   total_file_count: number;
   features: number;
+  /** Bitmask of locales installed in this storage (CASC_LOCALE_*). */
+  installed_locales: number;
 };
 
 export type OpenResult = {
@@ -20,6 +22,10 @@ export type IndexEntry = {
   storage_path: string | null;
   is_dir: boolean;
   size: number;
+  /** False for indexed-but-not-downloaded files (online-only / other locales). */
+  local: boolean;
+  /** Locale bitmask (files: dwLocaleFlags; dirs: aggregated). 0 = neutral. */
+  locale_flags: number;
 };
 
 export type FileKind =
@@ -52,6 +58,43 @@ export type Settings = {
   last_export_dir: string | null;
   recent_storages: string[];
   bookmarks: Bookmark[];
+  preferences: Preferences;
+};
+
+/** User-facing preferences (the Settings panel). Mirrors Rust `Preferences`. */
+export type Preferences = {
+  json_external_threshold_bytes: number;
+  thumbnails_in_tree: boolean;
+  thumbnails_in_browser: boolean;
+  hide_other_locales: boolean;
+  icon_theme: string;
+  /** Imported icon themes (opaque JSON owned by the frontend). */
+  custom_icon_themes: IconThemeJson[];
+  /** Extra rows/cols rendered beyond the viewport in virtualized grids. */
+  table_overscan: number;
+  /** Hide `*.lowend.sprite` low-quality variants from the tree / browser. */
+  hide_lowend: boolean;
+};
+
+/** Shape of an icon theme (default + imported). See lib/fileIcons. */
+export type IconThemeJson = {
+  name: string;
+  folder?: IconSpecJson;
+  file?: IconSpecJson;
+  byExt?: Record<string, IconSpecJson>;
+};
+
+export type IconSpecJson = { icon: string; color: string };
+
+export const DEFAULT_PREFERENCES: Preferences = {
+  json_external_threshold_bytes: 2 * 1024 * 1024,
+  thumbnails_in_tree: true,
+  thumbnails_in_browser: true,
+  hide_other_locales: false,
+  icon_theme: "default",
+  custom_icon_themes: [],
+  table_overscan: 16,
+  hide_lowend: true,
 };
 
 export type Bookmark = {
@@ -71,22 +114,31 @@ export const api = {
   setLastExportDir: (dir: string) => invoke<void>("set_last_export_dir", { dir }),
   setBookmarks: (bookmarks: Bookmark[]) =>
     invoke<void>("set_bookmarks", { bookmarks }),
+  setPreferences: (preferences: Preferences) =>
+    invoke<void>("set_preferences", { preferences }),
+  readTextFile: (path: string) => invoke<string>("read_text_file", { path }),
   extractToTemp: (path: string) => invoke<string>("extract_to_temp", { path }),
   isInstalled: () => invoke<boolean>("is_installed"),
 
-  searchNames: (query: string, useRegex: boolean, limit: number) =>
-    invoke<NameHit[]>("search_names", { query, useRegex, limit }),
+  searchNames: (
+    query: string,
+    useRegex: boolean,
+    limit: number,
+    localOnly: boolean
+  ) => invoke<NameHit[]>("search_names", { query, useRegex, limit, localOnly }),
   searchContent: (
     query: string,
     glob: string | null,
     maxFileSize: number,
-    caseInsensitive: boolean
+    caseInsensitive: boolean,
+    localOnly: boolean
   ) =>
     invoke<number>("search_content", {
       query,
       glob,
       maxFileSize,
       caseInsensitive,
+      localOnly,
     }),
   cancelSearch: () => invoke<void>("cancel_search"),
 
@@ -99,6 +151,18 @@ export const api = {
   cancelExport: () => invoke<void>("cancel_export"),
 
   decodeSprite: (path: string) => invoke<SpriteImage>("decode_sprite", { path }),
+  decodeDc6: (path: string, palette?: string) =>
+    invoke<Dc6Image>("decode_dc6", { path, palette: palette ?? null }),
+  decodeImage: (path: string) => invoke<RasterImage>("decode_image", { path }),
+  /** Small PNG (base64) preview: first sprite frame or a downscaled image. */
+  thumbnail: (path: string, max: number) =>
+    invoke<string>("thumbnail", { path, max }),
+};
+
+export type RasterImage = {
+  width: number;
+  height: number;
+  png_b64: string;
 };
 
 export type SpriteImage = {
@@ -108,6 +172,21 @@ export type SpriteImage = {
   frame_width: number;
   frame_height: number;
   png_b64: string;
+};
+
+export type Dc6FrameImage = {
+  width: number;
+  height: number;
+  offset_x: number;
+  offset_y: number;
+  png_b64: string;
+};
+
+export type Dc6Image = {
+  directions: number;
+  frames_per_dir: number;
+  frame_count: number;
+  frames: Dc6FrameImage[];
 };
 
 export type NameHit = {
