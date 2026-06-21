@@ -18,6 +18,7 @@ import {
   message,
 } from "antd";
 import { api } from "../../lib/api";
+import { base64PngToObjectUrl } from "../../lib/imageUrl";
 import type { ViewerProps } from "./types";
 
 interface SpriteImage {
@@ -126,10 +127,19 @@ export function SpriteViewer({ meta }: ViewerProps) {
     return () => ro.disconnect();
   }, [data]);
 
-  const dataUrl = useMemo(
-    () => (data ? `data:image/png;base64,${data.png_b64}` : null),
-    [data]
-  );
+  // Hold the atlas PNG as a Blob object URL (decoded once by the webview)
+  // instead of a second multi-MB data: string; create before paint, revoke on
+  // change. All frame thumbnails + the main image slice this one URL via CSS.
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (!data) {
+      setDataUrl(null);
+      return;
+    }
+    const url = base64PngToObjectUrl(data.png_b64);
+    setDataUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [data]);
 
   // Measure the scroll container so we can fit the sprite to it.
   useLayoutEffect(() => {

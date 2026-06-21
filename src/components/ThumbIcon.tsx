@@ -43,23 +43,44 @@ function extOf(name: string): string {
   return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
 }
 
-function loadThumb(path: string): Promise<string | null> {
+// Live demand per path: how many mounted ThumbIcons still want it. A decode that
+// reaches the front of the queue only to find its path no longer wanted bails,
+// so abandoned requests from a fast scroll don't block the rows now on screen.
+const wanted = new Map<string, number>();
+function want(path: string): void {
+  wanted.set(path, (wanted.get(path) ?? 0) + 1);
+}
+function unwant(path: string): void {
+  const n = (wanted.get(path) ?? 0) - 1;
+  if (n <= 0) wanted.delete(path);
+  else wanted.set(path, n);
+}
+
+async function loadThumb(path: string): Promise<string | null> {
   const cached = cache.get(path);
-  if (cached !== undefined) return Promise.resolve(cached);
+  if (cached !== undefined) return cached;
   const existing = inflight.get(path);
   if (existing) return existing;
-  const p = acquire()
-    .then(() => api.thumbnail(path, THUMB_DECODE))
-    .then((b64) => `data:image/png;base64,${b64}` as string | null)
-    .catch(() => null)
-    .then((val) => {
-      cache.set(path, val);
-      inflight.delete(path);
+  const run = (async () => {
+    await acquire();
+    try {
+      // Scrolled out of view while queued? Skip the decode — and DON'T cache a
+      // miss, so it retries if it scrolls back in.
+      if (!wanted.has(path)) return null;
+      const b64 = await api.thumbnail(path, THUMB_DECODE);
+      const url = `data:image/png;base64,${b64}`;
+      cache.set(path, url);
+      return url;
+    } catch {
+      cache.set(path, null); // genuine failure: don't retry this session
+      return null;
+    } finally {
       release();
-      return val;
-    });
-  inflight.set(path, p);
-  return p;
+      inflight.delete(path);
+    }
+  })();
+  inflight.set(path, run);
+  return run;
 }
 
 interface Props {
@@ -101,12 +122,14 @@ export const ThumbIcon = memo(function ThumbIcon({
       setUrl(cached);
       return;
     }
+    want(path);
     let cancelled = false;
     loadThumb(path).then((u) => {
       if (!cancelled) setUrl(u);
     });
     return () => {
       cancelled = true;
+      unwant(path);
     };
   }, [thumbable, path]);
 

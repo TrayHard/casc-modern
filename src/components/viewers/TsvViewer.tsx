@@ -99,7 +99,7 @@ function parseTsv(text: string): Parsed {
 /// column, which janks on 100+-column tables), so a 106-column file only mounts
 /// the cells actually on screen.
 export function TsvViewer({ meta }: ViewerProps) {
-  const [bytes, setBytes] = useState<number[] | null>(null);
+  const [text, setText] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [opening, setOpening] = useState(false);
@@ -121,15 +121,15 @@ export function TsvViewer({ meta }: ViewerProps) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setBytes(null);
+    setText(null);
     setQuery("");
     setSortCol(null);
     setSortDir(null);
     api
-      .readFilePreview(meta.path, TSV_LIMIT)
+      .readTextPreview(meta.path, TSV_LIMIT)
       .then((p) => {
         if (!cancelled) {
-          setBytes(p.bytes);
+          setText(p.text);
           setTruncated(p.truncated);
         }
       })
@@ -161,20 +161,13 @@ export function TsvViewer({ meta }: ViewerProps) {
       ro.disconnect();
       window.removeEventListener("resize", sync);
     };
-    // Re-subscribe when the table first renders (bytes null -> data); the
+    // Re-subscribe when the table first renders (text null -> data); the
     // observer/listener handle live resizes after that.
-  }, [bytes]);
+  }, [text]);
 
   const parsed = useMemo(
-    () =>
-      bytes
-        ? parseTsv(
-            new TextDecoder("utf-8", { fatal: false }).decode(
-              new Uint8Array(bytes)
-            )
-          )
-        : null,
-    [bytes]
+    () => (text !== null ? parseTsv(text) : null),
+    [text]
   );
 
   // Reset column widths to the default whenever a new table loads.

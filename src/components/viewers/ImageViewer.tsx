@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Button, InputNumber, Result, Slider, Space, Spin, message } from "antd";
 import { api, errMsg, RasterImage } from "../../lib/api";
+import { base64PngToObjectUrl } from "../../lib/imageUrl";
 import type { ViewerProps } from "./types";
 
 const CHECKER =
@@ -80,10 +81,18 @@ export function ImageViewer({ meta }: ViewerProps) {
     return s > 0 ? Math.min(1, s) : 1;
   }, [data, box]);
 
-  const dataUrl = useMemo(
-    () => (data ? `data:image/png;base64,${data.png_b64}` : null),
-    [data]
-  );
+  // Hold the decoded PNG as a Blob object URL rather than a second multi-MB
+  // data: string; create before paint and revoke when the image changes.
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (!data) {
+      setDataUrl(null);
+      return;
+    }
+    const url = base64PngToObjectUrl(data.png_b64);
+    setDataUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [data]);
 
   if (err) {
     const notLocal = /0x2|not found|CascOpenFile|GetFileSize/i.test(err);

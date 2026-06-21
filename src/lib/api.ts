@@ -53,6 +53,12 @@ export type FileMeta = {
   kind: FileKind;
 };
 
+export type TextPreview = {
+  text: string;
+  size: number;
+  truncated: boolean;
+};
+
 export type Settings = {
   last_storage_path: string | null;
   last_export_dir: string | null;
@@ -109,6 +115,9 @@ export const api = {
   listDir: (path: string) => invoke<IndexEntry[]>("list_dir", { path }),
   readFilePreview: (path: string, maxBytes: number) =>
     invoke<FilePreview>("read_file_preview", { path, maxBytes }),
+  /** Decoded UTF-8 text (BOM-stripped) — cheaper than bytes for big tables. */
+  readTextPreview: (path: string, maxBytes: number) =>
+    invoke<TextPreview>("read_text_preview", { path, maxBytes }),
   getFileMeta: (path: string) => invoke<FileMeta>("get_file_meta", { path }),
   getSettings: () => invoke<Settings>("get_settings"),
   setLastExportDir: (dir: string) => invoke<void>("set_last_export_dir", { dir }),
@@ -151,8 +160,11 @@ export const api = {
   cancelExport: () => invoke<void>("cancel_export"),
 
   decodeSprite: (path: string) => invoke<SpriteImage>("decode_sprite", { path }),
-  decodeDc6: (path: string, palette?: string) =>
-    invoke<Dc6Image>("decode_dc6", { path, palette: palette ?? null }),
+  /** Cheap DC6 metadata (frame geometry, no pixels). */
+  dc6Info: (path: string) => invoke<Dc6Info>("dc6_info", { path }),
+  /** One DC6 frame as a base64 PNG, for the given palette. */
+  dc6Frame: (path: string, palette: string | undefined, frame: number) =>
+    invoke<Dc6FrameImage>("dc6_frame", { path, palette: palette ?? null, frame }),
   decodeImage: (path: string) => invoke<RasterImage>("decode_image", { path }),
   /** Small PNG (base64) preview: first sprite frame or a downscaled image. */
   thumbnail: (path: string, max: number) =>
@@ -182,11 +194,18 @@ export type Dc6FrameImage = {
   png_b64: string;
 };
 
-export type Dc6Image = {
+export type Dc6FrameMeta = {
+  width: number;
+  height: number;
+  offset_x: number;
+  offset_y: number;
+};
+
+export type Dc6Info = {
   directions: number;
   frames_per_dir: number;
   frame_count: number;
-  frames: Dc6FrameImage[];
+  frames: Dc6FrameMeta[];
 };
 
 export type NameHit = {

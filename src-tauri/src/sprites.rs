@@ -219,55 +219,95 @@ pub struct Dc6FrameImage {
     pub png_b64: String,
 }
 
+/// Per-frame geometry without pixels — cheap to ship for every frame at once.
 #[derive(Debug, Serialize)]
-pub struct Dc6Image {
+pub struct Dc6FrameMeta {
+    pub width: u32,
+    pub height: u32,
+    pub offset_x: i32,
+    pub offset_y: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Dc6Info {
     pub directions: u32,
     pub frames_per_dir: u32,
     pub frame_count: u32,
-    pub frames: Vec<Dc6FrameImage>,
+    pub frames: Vec<Dc6FrameMeta>,
 }
 
 /// Canonical default palette ("units"); the frontend can pass another.
 const DEFAULT_DC6_PALETTE: &str = "data/data/global/palette/units/pal.dat";
 
-/// Decode a classic `.dc6` (indexed) to per-frame PNGs, applying a palette.
+/// Cheap metadata for a `.dc6`: frame count + per-frame geometry, NO pixels.
+/// The viewer fetches this once, then pulls individual frames lazily via
+/// `dc6_frame`, so a 200-glyph font no longer ships 200 PNGs in one payload.
 #[tauri::command]
-pub async fn decode_dc6(
+pub async fn dc6_info(app: AppHandle, path: String) -> ApiResult<Dc6Info> {
+    tokio::task::spawn_blocking(move || -> ApiResult<Dc6Info> {
+        let state = app.state::<AppState>();
+        let bytes = read_indexed(&state, &path)?;
+        let decoded = dc6::decode(&bytes).map_err(|e| ApiError {
+            message: format!("dc6_info: {e}"),
+        })?;
+        let frames = decoded
+            .frames
+            .iter()
+            .map(|f| Dc6FrameMeta {
+                width: f.width,
+                height: f.height,
+                offset_x: f.offset_x,
+                offset_y: f.offset_y,
+            })
+            .collect();
+        Ok(Dc6Info {
+            directions: decoded.directions,
+            frames_per_dir: decoded.frames_per_dir,
+            frame_count: decoded.frames.len() as u32,
+            frames,
+        })
+    })
+    .await
+    .map_err(|e| ApiError {
+        message: format!("join: {e}"),
+    })?
+}
+
+/// Decode a single `.dc6` frame to a PNG (base64), applying `palette`. Decoding
+/// the RLE is cheap; only this one frame is PNG-encoded and shipped, so frame
+/// stepping and palette switches stay lightweight.
+#[tauri::command]
+pub async fn dc6_frame(
     app: AppHandle,
     path: String,
     palette: Option<String>,
-) -> ApiResult<Dc6Image> {
-    tokio::task::spawn_blocking(move || -> ApiResult<Dc6Image> {
+    frame: u32,
+) -> ApiResult<Dc6FrameImage> {
+    tokio::task::spawn_blocking(move || -> ApiResult<Dc6FrameImage> {
         let state = app.state::<AppState>();
         let bytes = read_indexed(&state, &path)?;
         let pal_path = palette.as_deref().unwrap_or(DEFAULT_DC6_PALETTE);
         let pal = dc6_palette(&state, pal_path);
         let decoded = dc6::decode(&bytes).map_err(|e| ApiError {
-            message: format!("decode_dc6: {e}"),
+            message: format!("dc6_frame: {e}"),
         })?;
-        let mut frames = Vec::with_capacity(decoded.frames.len());
-        for f in &decoded.frames {
-            if (f.width as u64) * (f.height as u64) > MAX_IMAGE_PIXELS {
-                return Err(ApiError {
-                    message: format!("dc6 frame is {}×{} — too large", f.width, f.height),
-                });
-            }
-            let rgba = dc6::to_rgba(f, &pal);
-            let png_b64 =
-                rgba_to_png_b64(f.width, f.height, rgba).map_err(|e| ApiError { message: e })?;
-            frames.push(Dc6FrameImage {
-                width: f.width,
-                height: f.height,
-                offset_x: f.offset_x,
-                offset_y: f.offset_y,
-                png_b64,
+        let f = decoded.frames.get(frame as usize).ok_or_else(|| ApiError {
+            message: format!("dc6_frame: index {frame} out of range"),
+        })?;
+        if (f.width as u64) * (f.height as u64) > MAX_IMAGE_PIXELS {
+            return Err(ApiError {
+                message: format!("dc6 frame is {}×{} — too large", f.width, f.height),
             });
         }
-        Ok(Dc6Image {
-            directions: decoded.directions,
-            frames_per_dir: decoded.frames_per_dir,
-            frame_count: frames.len() as u32,
-            frames,
+        let rgba = dc6::to_rgba(f, &pal);
+        let png_b64 =
+            rgba_to_png_b64(f.width, f.height, rgba).map_err(|e| ApiError { message: e })?;
+        Ok(Dc6FrameImage {
+            width: f.width,
+            height: f.height,
+            offset_x: f.offset_x,
+            offset_y: f.offset_y,
+            png_b64,
         })
     })
     .await
