@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-21
+
 ### Added
 - **Format & folder icons** in the tree and the directory list, driven by a
   single swappable icon palette (`src/lib/fileIcons.tsx`) rather than hardcoded
@@ -45,6 +47,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Hide low-quality sprites** setting (on by default) drops the
   `*.lowend.sprite` duplicates (every sprite ships a high + lowend pair, 1:1);
   the sprite viewer gained a **High / Low** quality toggle to switch in place.
+- **Auto-sized TSV columns**: table columns fit their widest cell or header on
+  load (clamped), and double-clicking a column border refits that one column.
 
 ### Changed
 - **Image / sprite / DC6 viewers** open at 100% zoom with **Fit** / **1:1**
@@ -86,6 +90,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **UI no longer freezes ("Not responding") while decoding a large image** —
   sprite/image/thumbnail decoding moved off the UI thread (async +
   `spawn_blocking`).
+- **The sprite frame list ("+N") opens again** — the overflow popover gated its
+  content to empty, which left antd's trigger unwired, so clicking did nothing;
+  it now opens on click with a memoized frame grid.
+
+### Performance
+- **Directory table virtualized** so large folders only mount the rows on
+  screen and re-sorting is O(viewport), not O(rows).
+- **DC6 frames load lazily** — a metadata-only command plus a per-frame command
+  replace shipping every glyph of a font as base64 in one payload; the thumbnail
+  strip fetches frames as they scroll into view, and palette switches only
+  refetch what's visible.
+- **Lighter viewer IPC** — the TSV table reads decoded text instead of a boxed
+  byte array, and the sprite/image viewers hold the decoded PNG as a Blob object
+  URL rather than a duplicate `data:` string.
+- **Fewer spurious re-renders** — a settings toggle no longer refetches the tree
+  root or loses expansion state; off-screen thumbnail decodes are cancelled so
+  they don't block the rows on screen.
 
 ## [0.1.6] - 2026-06-21
 
@@ -153,6 +174,7 @@ Initial public release.
 - Bulk PNG export no longer aborts the whole batch on a single malformed
   sprite, and large atlases no longer overflow.
 
+[0.2.0]: https://github.com/TrayHard/casc-modern/releases/tag/v0.2.0
 [0.1.6]: https://github.com/TrayHard/casc-modern/releases/tag/v0.1.6
 [0.1.5]: https://github.com/TrayHard/casc-modern/releases/tag/v0.1.5
 [0.1.4]: https://github.com/TrayHard/casc-modern/releases/tag/v0.1.4
