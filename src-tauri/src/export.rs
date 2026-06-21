@@ -95,9 +95,9 @@ pub async fn export_path(
 ) -> ApiResult<ExportSummary> {
     let tasks = {
         let lock = state.opened.lock().expect("opened storage lock poisoned");
-        let opened = lock
-            .as_ref()
-            .ok_or_else(|| ApiError { message: "no storage open".into() })?;
+        let opened = lock.as_ref().ok_or_else(|| ApiError {
+            message: "no storage open".into(),
+        })?;
         let tasks = collect_tasks(opened, &virtual_path, false);
         if tasks.is_empty() {
             return Err(ApiError {
@@ -125,9 +125,9 @@ pub async fn export_paths(
 ) -> ApiResult<ExportSummary> {
     let tasks = {
         let lock = state.opened.lock().expect("opened storage lock poisoned");
-        let opened = lock
-            .as_ref()
-            .ok_or_else(|| ApiError { message: "no storage open".into() })?;
+        let opened = lock.as_ref().ok_or_else(|| ApiError {
+            message: "no storage open".into(),
+        })?;
         let mut out: Vec<Task> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         for p in &paths {
@@ -138,7 +138,9 @@ pub async fn export_paths(
             }
         }
         if out.is_empty() {
-            return Err(ApiError { message: "nothing to export".into() });
+            return Err(ApiError {
+                message: "nothing to export".into(),
+            });
         }
         out
     };
@@ -188,7 +190,7 @@ async fn run_export(
                     errors.push(format!("{rel}: {e}"));
                 }
             }
-            if (i as u32) % 16 == 0 || (i as u32) + 1 == total {
+            if (i as u32).is_multiple_of(16) || (i as u32) + 1 == total {
                 let _ = app_blocking.emit(
                     "export_progress",
                     ExportProgress {
@@ -212,7 +214,9 @@ async fn run_export(
         }
     })
     .await
-    .map_err(|e| ApiError { message: format!("join: {e}") })?;
+    .map_err(|e| ApiError {
+        message: format!("join: {e}"),
+    })?;
 
     let _ = app.emit("export_done", &result);
     Ok(result)
@@ -225,7 +229,10 @@ pub fn cancel_export(state: tauri::State<'_, ExportState>) {
 
 fn extract_one(app: &AppHandle, storage_path: &str, out_path: &Path) -> Result<u64, String> {
     let app_state = app.state::<AppState>();
-    let lock = app_state.opened.lock().expect("opened storage lock poisoned");
+    let lock = app_state
+        .opened
+        .lock()
+        .expect("opened storage lock poisoned");
     let opened = lock
         .as_ref()
         .ok_or_else(|| "storage closed during export".to_string())?;

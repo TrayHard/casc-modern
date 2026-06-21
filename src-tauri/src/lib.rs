@@ -27,7 +27,9 @@ pub struct ApiError {
 
 impl From<casc_core::CascError> for ApiError {
     fn from(e: casc_core::CascError) -> Self {
-        Self { message: e.to_string() }
+        Self {
+            message: e.to_string(),
+        }
     }
 }
 
@@ -50,14 +52,17 @@ async fn open_storage(
     // Build can be slow (200ms+) on huge storages — push to a blocking thread
     // so the UI thread stays responsive.
     let path_clone = path.clone();
-    let result = tokio::task::spawn_blocking(move || -> ApiResult<(Storage, FileIndex, StorageInfo)> {
-        let storage = Storage::open(PathBuf::from(&path_clone))?;
-        let info = storage.info()?;
-        let index = storage.build_index()?;
-        Ok((storage, index, info))
-    })
-    .await
-    .map_err(|e| ApiError { message: format!("join error: {e}") })??;
+    let result =
+        tokio::task::spawn_blocking(move || -> ApiResult<(Storage, FileIndex, StorageInfo)> {
+            let storage = Storage::open(PathBuf::from(&path_clone))?;
+            let info = storage.info()?;
+            let index = storage.build_index()?;
+            Ok((storage, index, info))
+        })
+        .await
+        .map_err(|e| ApiError {
+            message: format!("join error: {e}"),
+        })??;
 
     let (storage, index, info) = result;
     let indexed_dirs = index.dir_count();
@@ -71,7 +76,11 @@ async fn open_storage(
         let _ = s.save(&app);
     }
 
-    Ok(OpenResult { info, indexed_dirs, indexed_files })
+    Ok(OpenResult {
+        info,
+        indexed_dirs,
+        indexed_files,
+    })
 }
 
 #[tauri::command]
@@ -82,9 +91,9 @@ fn close_storage(state: tauri::State<'_, AppState>) {
 #[tauri::command]
 fn list_dir(state: tauri::State<'_, AppState>, path: String) -> ApiResult<Vec<IndexEntry>> {
     let lock = state.opened.lock().expect("opened storage lock poisoned");
-    let opened = lock
-        .as_ref()
-        .ok_or_else(|| ApiError { message: "no storage open".into() })?;
+    let opened = lock.as_ref().ok_or_else(|| ApiError {
+        message: "no storage open".into(),
+    })?;
     Ok(opened.index.list(&path))
 }
 
@@ -105,17 +114,22 @@ fn read_file_preview(
     max_bytes: u32,
 ) -> ApiResult<FilePreview> {
     let lock = state.opened.lock().expect("opened storage lock poisoned");
-    let opened = lock
-        .as_ref()
-        .ok_or_else(|| ApiError { message: "no storage open".into() })?;
-    let (storage_path, size) = opened
-        .index
-        .resolve(&path)
-        .ok_or_else(|| ApiError { message: format!("not in index: {path}") })?;
+    let opened = lock.as_ref().ok_or_else(|| ApiError {
+        message: "no storage open".into(),
+    })?;
+    let (storage_path, size) = opened.index.resolve(&path).ok_or_else(|| ApiError {
+        message: format!("not in index: {path}"),
+    })?;
     let bytes = opened.storage.read_n(&storage_path, max_bytes as usize)?;
     let kind = FileKind::sniff(&path, &bytes);
     let truncated = (bytes.len() as u64) < size;
-    Ok(FilePreview { path, size, kind, bytes, truncated })
+    Ok(FilePreview {
+        path,
+        size,
+        kind,
+        bytes,
+        truncated,
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -129,19 +143,26 @@ struct FileMeta {
 #[tauri::command]
 fn get_file_meta(state: tauri::State<'_, AppState>, path: String) -> ApiResult<FileMeta> {
     let lock = state.opened.lock().expect("opened storage lock poisoned");
-    let opened = lock
-        .as_ref()
-        .ok_or_else(|| ApiError { message: "no storage open".into() })?;
-    let (storage_path, size) = opened
-        .index
-        .resolve(&path)
-        .ok_or_else(|| ApiError { message: format!("not in index: {path}") })?;
+    let opened = lock.as_ref().ok_or_else(|| ApiError {
+        message: "no storage open".into(),
+    })?;
+    let (storage_path, size) = opened.index.resolve(&path).ok_or_else(|| ApiError {
+        message: format!("not in index: {path}"),
+    })?;
     // Read a small prefix so the sniff can tell binary from text. Extension /
     // magic alone falls back to Text for everything unrecognized, which put a
     // useless "Text" tab on .flac/.webm/.sprite and other binary formats.
-    let prefix = opened.storage.read_n(&storage_path, 512).unwrap_or_default();
+    let prefix = opened
+        .storage
+        .read_n(&storage_path, 512)
+        .unwrap_or_default();
     let kind = FileKind::sniff(&path, &prefix);
-    Ok(FileMeta { path, storage_path, size, kind })
+    Ok(FileMeta {
+        path,
+        storage_path,
+        size,
+        kind,
+    })
 }
 
 #[tauri::command]
@@ -175,16 +196,17 @@ fn is_installed() -> bool {
 #[tauri::command]
 fn extract_to_temp(state: tauri::State<'_, AppState>, path: String) -> ApiResult<String> {
     let lock = state.opened.lock().expect("opened storage lock poisoned");
-    let opened = lock
-        .as_ref()
-        .ok_or_else(|| ApiError { message: "no storage open".into() })?;
-    let (storage_path, _) = opened
-        .index
-        .resolve(&path)
-        .ok_or_else(|| ApiError { message: format!("not in index: {path}") })?;
+    let opened = lock.as_ref().ok_or_else(|| ApiError {
+        message: "no storage open".into(),
+    })?;
+    let (storage_path, _) = opened.index.resolve(&path).ok_or_else(|| ApiError {
+        message: format!("not in index: {path}"),
+    })?;
     let basename = path.rsplit('/').next().unwrap_or(&path);
     let dir = std::env::temp_dir().join("casc-modern");
-    std::fs::create_dir_all(&dir).map_err(|e| ApiError { message: e.to_string() })?;
+    std::fs::create_dir_all(&dir).map_err(|e| ApiError {
+        message: e.to_string(),
+    })?;
     let target = dir.join(basename);
     opened.storage.extract(&storage_path, &target)?;
     Ok(target.to_string_lossy().into_owned())
@@ -198,8 +220,9 @@ fn set_last_export_dir(
 ) -> ApiResult<()> {
     let mut s = state.0.lock().expect("settings lock poisoned");
     s.last_export_dir = Some(dir);
-    s.save(&app)
-        .map_err(|e| ApiError { message: e.to_string() })?;
+    s.save(&app).map_err(|e| ApiError {
+        message: e.to_string(),
+    })?;
     Ok(())
 }
 
@@ -211,8 +234,9 @@ fn set_bookmarks(
 ) -> ApiResult<()> {
     let mut s = state.0.lock().expect("settings lock poisoned");
     s.bookmarks = bookmarks;
-    s.save(&app)
-        .map_err(|e| ApiError { message: e.to_string() })?;
+    s.save(&app).map_err(|e| ApiError {
+        message: e.to_string(),
+    })?;
     Ok(())
 }
 
@@ -224,8 +248,9 @@ fn set_preferences(
 ) -> ApiResult<()> {
     let mut s = state.0.lock().expect("settings lock poisoned");
     s.preferences = preferences;
-    s.save(&app)
-        .map_err(|e| ApiError { message: e.to_string() })?;
+    s.save(&app).map_err(|e| ApiError {
+        message: e.to_string(),
+    })?;
     Ok(())
 }
 
@@ -233,16 +258,16 @@ fn set_preferences(
 /// user picks via the open dialog).
 #[tauri::command]
 fn read_text_file(path: String) -> ApiResult<String> {
-    std::fs::read_to_string(&path)
-        .map_err(|e| ApiError { message: format!("read {path}: {e}") })
+    std::fs::read_to_string(&path).map_err(|e| ApiError {
+        message: format!("read {path}: {e}"),
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 

@@ -87,10 +87,22 @@ pub fn decode(bytes: &[u8]) -> Result<Dc6, CascError> {
             .get(p + 32..p + 32 + length)
             .ok_or(err("dc6: truncated frame data"))?;
         let indices = decode_frame(data, width, height, flip)?;
-        frames.push(Dc6Frame { flip, width, height, offset_x, offset_y, indices });
+        frames.push(Dc6Frame {
+            flip,
+            width,
+            height,
+            offset_x,
+            offset_y,
+            indices,
+        });
     }
 
-    Ok(Dc6 { version, directions, frames_per_dir, frames })
+    Ok(Dc6 {
+        version,
+        directions,
+        frames_per_dir,
+        frames,
+    })
 }
 
 /// Decode one frame's RLE scanlines into a top-left-origin index buffer.
@@ -211,7 +223,7 @@ mod tests {
         buf.extend_from_slice(&[0xEE, 0xEE, 0xEE, 0xEE]);
         buf.extend_from_slice(&le(1)); // directions
         buf.extend_from_slice(&le(1)); // frames_per_dir
-        // pointer table: one entry, points to the frame header that follows it
+                                       // pointer table: one entry, points to the frame header that follows it
         let frame_hdr_off = (0x18 + 4) as u32;
         buf.extend_from_slice(&frame_hdr_off.to_le_bytes());
         // frame header

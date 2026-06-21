@@ -95,9 +95,8 @@ impl Storage {
         let root_path = path.as_ref().to_path_buf();
         let c_path = to_cstring(&root_path)?;
         let mut handle: sys::HANDLE = ptr::null_mut();
-        let ok = unsafe {
-            sys::CascOpenStorage(c_path.as_ptr(), sys::CASC_LOCALE_ALL, &mut handle)
-        };
+        let ok =
+            unsafe { sys::CascOpenStorage(c_path.as_ptr(), sys::CASC_LOCALE_ALL, &mut handle) };
         if !sys::ok(ok) || handle.is_null() {
             return Err(last_err("CascOpenStorage"));
         }
@@ -109,12 +108,10 @@ impl Storage {
     }
 
     pub fn info(&self) -> Result<StorageInfo> {
-        let local_file_count = self.get_storage_dword(
-            sys::CASC_STORAGE_INFO_CLASS::CascStorageLocalFileCount,
-        )?;
-        let total_file_count = self.get_storage_dword(
-            sys::CASC_STORAGE_INFO_CLASS::CascStorageTotalFileCount,
-        )?;
+        let local_file_count =
+            self.get_storage_dword(sys::CASC_STORAGE_INFO_CLASS::CascStorageLocalFileCount)?;
+        let total_file_count =
+            self.get_storage_dword(sys::CASC_STORAGE_INFO_CLASS::CascStorageTotalFileCount)?;
         let features = self
             .get_storage_dword(sys::CASC_STORAGE_INFO_CLASS::CascStorageFeatures)
             .unwrap_or(0);
@@ -203,7 +200,10 @@ impl Storage {
             {
                 return Ok(());
             }
-            return Err(CascError::Backend { op: "CascFindFirstFile", code });
+            return Err(CascError::Backend {
+                op: "CascFindFirstFile",
+                code,
+            });
         }
 
         loop {
@@ -258,11 +258,10 @@ impl Storage {
             return Err(last_err("CascGetFileSize64"));
         }
         // Guard against 32-bit hosts where a >4GB file would overflow usize.
-        let full_size_usize =
-            usize::try_from(full_size).map_err(|_| CascError::Backend {
-                op: "file too large for address space",
-                code: 0,
-            })?;
+        let full_size_usize = usize::try_from(full_size).map_err(|_| CascError::Backend {
+            op: "file too large for address space",
+            code: 0,
+        })?;
         let want_total = max_bytes.map_or(full_size_usize, |m| m.min(full_size_usize));
 
         let mut buf = vec![0u8; want_total];
@@ -393,9 +392,7 @@ impl FileKind {
 /// tolerating a trailing multibyte char cut off by the 512-byte read, and a
 /// leading UTF-8 BOM. Rejects control bytes other than tab/newline/CR.
 fn looks_textual(prefix: &[u8]) -> bool {
-    let bytes = prefix
-        .strip_prefix(&[0xEF, 0xBB, 0xBF])
-        .unwrap_or(prefix);
+    let bytes = prefix.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(prefix);
     let valid = match std::str::from_utf8(bytes) {
         Ok(_) => bytes.len(),
         Err(e) => e.valid_up_to(),
@@ -404,7 +401,7 @@ fn looks_textual(prefix: &[u8]) -> bool {
     if bytes.len().saturating_sub(valid) > 3 {
         return false;
     }
-    bytes[..valid].iter().all(|&b| {
-        b == b'\t' || b == b'\n' || b == b'\r' || (0x20..0x7F).contains(&b) || b >= 0x80
-    })
+    bytes[..valid]
+        .iter()
+        .all(|&b| b == b'\t' || b == b'\n' || b == b'\r' || (0x20..0x7F).contains(&b) || b >= 0x80)
 }

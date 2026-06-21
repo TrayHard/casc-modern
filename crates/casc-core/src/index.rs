@@ -85,7 +85,11 @@ impl FileIndex {
         // Aggregate locale coverage up the directory chain so the UI can hide
         // folders that hold nothing for the user's locale. A neutral file
         // (flags == 0) marks every ancestor as universally relevant.
-        let contrib = if locale_flags == 0 { 0xFFFF_FFFF } else { locale_flags };
+        let contrib = if locale_flags == 0 {
+            0xFFFF_FFFF
+        } else {
+            locale_flags
+        };
         for k in 0..segments.len() {
             let prefix: String = segments[..k].join("/");
             *self.dir_locale.entry(prefix).or_insert(0) |= contrib;
@@ -93,7 +97,12 @@ impl FileIndex {
 
         let parent: String = segments[..segments.len() - 1].join("/");
         let file_name = segments.last().unwrap().to_string();
-        let record = FileRecord { storage_path, size, available, locale_flags };
+        let record = FileRecord {
+            storage_path,
+            size,
+            available,
+            locale_flags,
+        };
         self.by_dir
             .entry(parent.clone())
             .or_default()
@@ -164,7 +173,11 @@ impl FileIndex {
     pub fn finalize(&mut self) {
         let mut dropped: Vec<String> = Vec::new();
         for (dir, content) in self.by_dir.iter_mut() {
-            let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
+            let prefix = if dir.is_empty() {
+                String::new()
+            } else {
+                format!("{dir}/")
+            };
             content.files.retain(|name, _| {
                 if content.subdirs.contains(name) {
                     dropped.push(format!("{prefix}{name}"));
@@ -213,7 +226,12 @@ mod tests {
     #[test]
     fn root_then_nested() {
         let mut idx = FileIndex::default();
-        idx.add("data:data\\global\\excel\\levels.txt".into(), 80_000, true, 0);
+        idx.add(
+            "data:data\\global\\excel\\levels.txt".into(),
+            80_000,
+            true,
+            0,
+        );
         idx.add("data:data\\global\\excel\\misc.txt".into(), 1234, true, 0);
         idx.add("hd:hd\\pl_lit2.tex".into(), 42, true, 0);
         // VFS pseudo-files that share a name with the product directory.

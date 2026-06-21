@@ -114,8 +114,7 @@ impl Settings {
     }
 
     pub fn save(&self, app: &AppHandle) -> std::io::Result<()> {
-        let path = settings_file(app)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let path = settings_file(app).map_err(std::io::Error::other)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }

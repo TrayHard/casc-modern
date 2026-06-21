@@ -38,9 +38,9 @@ pub fn search_names(
     local_only: bool,
 ) -> ApiResult<Vec<NameHit>> {
     let lock = state.opened.lock().expect("opened storage lock poisoned");
-    let opened = lock
-        .as_ref()
-        .ok_or_else(|| ApiError { message: "no storage open".into() })?;
+    let opened = lock.as_ref().ok_or_else(|| ApiError {
+        message: "no storage open".into(),
+    })?;
 
     let matcher = NameMatcher::build(&query, use_regex)?;
     let mut out = Vec::new();
@@ -51,7 +51,11 @@ pub fn search_names(
             continue;
         }
         if matcher.is_match(dir) {
-            out.push(NameHit { path: dir.to_string(), is_dir: true, size: 0 });
+            out.push(NameHit {
+                path: dir.to_string(),
+                is_dir: true,
+                size: 0,
+            });
             if out.len() >= cap {
                 return Ok(out);
             }
@@ -62,7 +66,11 @@ pub fn search_names(
             continue;
         }
         if matcher.is_match(path) {
-            out.push(NameHit { path: path.to_string(), is_dir: false, size });
+            out.push(NameHit {
+                path: path.to_string(),
+                is_dir: false,
+                size,
+            });
             if out.len() >= cap {
                 return Ok(out);
             }
@@ -83,7 +91,9 @@ impl NameMatcher {
                 .case_insensitive(true)
                 .build()
                 .map(Self::Regex)
-                .map_err(|e| ApiError { message: format!("regex: {e}") })
+                .map_err(|e| ApiError {
+                    message: format!("regex: {e}"),
+                })
         } else {
             Ok(Self::Substring(query.to_ascii_lowercase()))
         }
@@ -131,6 +141,9 @@ pub struct SearchDone {
 
 /// Run a content search. Returns the total number of file hits.
 /// Streams `search_progress` and `search_hit` events as the scan runs.
+// A Tauri command's args come straight from the JS invoke; grouping them into a
+// struct would only obscure the call site.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn search_content(
     app: AppHandle,
@@ -143,12 +156,16 @@ pub async fn search_content(
     local_only: bool,
 ) -> ApiResult<u32> {
     if query.is_empty() {
-        return Err(ApiError { message: "query is empty".into() });
+        return Err(ApiError {
+            message: "query is empty".into(),
+        });
     }
     let glob_matcher = match glob.as_deref() {
         Some(p) if !p.is_empty() => Some(
             Glob::new(p)
-                .map_err(|e| ApiError { message: format!("glob: {e}") })?
+                .map_err(|e| ApiError {
+                    message: format!("glob: {e}"),
+                })?
                 .compile_matcher(),
         ),
         _ => None,
@@ -158,15 +175,15 @@ pub async fn search_content(
     // through the long scan.
     let candidates: Vec<(String, String, u64)> = {
         let lock = state.opened.lock().expect("opened storage lock poisoned");
-        let opened = lock
-            .as_ref()
-            .ok_or_else(|| ApiError { message: "no storage open".into() })?;
+        let opened = lock.as_ref().ok_or_else(|| ApiError {
+            message: "no storage open".into(),
+        })?;
         opened
             .index
             .iter_files()
             .filter(|(p, _, size, available)| {
                 (!local_only || *available)
-                    && *size as u64 <= max_file_size as u64
+                    && *size <= max_file_size as u64
                     && glob_matcher.as_ref().is_none_or(|g| g.is_match(p))
             })
             .map(|(p, s, sz, _)| (p.to_string(), s.to_string(), sz))
@@ -176,7 +193,10 @@ pub async fn search_content(
 
     // Reset cancel + running flags.
     search_state.cancel.store(false, Ordering::SeqCst);
-    *search_state.running.lock().expect("search-running lock poisoned") = true;
+    *search_state
+        .running
+        .lock()
+        .expect("search-running lock poisoned") = true;
     let cancel = search_state.cancel.clone();
 
     // Prebuild the search needle once. `Finder` does SIMD precomputation that
@@ -233,7 +253,7 @@ pub async fn search_content(
             // same Finder. Previously this was two separate scans.
             let mut iter = finder.find_iter(&haystack);
             let Some(offset) = iter.next() else {
-                if scanned % 64 == 0 || scanned == total {
+                if scanned.is_multiple_of(64) || scanned == total {
                     let _ = app_for_blocking.emit(
                         "search_progress",
                         SearchProgress {
@@ -262,7 +282,7 @@ pub async fn search_content(
                 },
             );
             // Throttle progress events to once every 64 files.
-            if scanned % 64 == 0 || scanned == total {
+            if scanned.is_multiple_of(64) || scanned == total {
                 let _ = app_for_blocking.emit(
                     "search_progress",
                     SearchProgress {
@@ -285,9 +305,14 @@ pub async fn search_content(
         }
     })
     .await
-    .map_err(|e| ApiError { message: format!("join: {e}") })?;
+    .map_err(|e| ApiError {
+        message: format!("join: {e}"),
+    })?;
 
-    *search_state.running.lock().expect("search-running lock poisoned") = false;
+    *search_state
+        .running
+        .lock()
+        .expect("search-running lock poisoned") = false;
     let _ = app.emit("search_done", &result);
     Ok(result.matches)
 }
@@ -302,7 +327,10 @@ fn read_storage_file(app: &AppHandle, storage_path: &str) -> Result<Vec<u8>, Str
     // isn't held across other awaits.
     use tauri::Manager;
     let app_state = app.state::<AppState>();
-    let lock = app_state.opened.lock().expect("opened storage lock poisoned");
+    let lock = app_state
+        .opened
+        .lock()
+        .expect("opened storage lock poisoned");
     let opened = lock
         .as_ref()
         .ok_or_else(|| "storage closed during search".to_string())?;

@@ -33,11 +33,12 @@ pub async fn decode_sprite(app: AppHandle, path: String) -> ApiResult<SpriteImag
     tokio::task::spawn_blocking(move || -> ApiResult<SpriteImage> {
         let state = app.state::<AppState>();
         let bytes = read_indexed(&state, &path)?;
-        let sprite = spa1::decode(&bytes)
-            .map_err(|e| ApiError { message: format!("decode_sprite: {e}") })?;
-        let png = sprite
-            .to_png()
-            .map_err(|e| ApiError { message: format!("to_png: {e}") })?;
+        let sprite = spa1::decode(&bytes).map_err(|e| ApiError {
+            message: format!("decode_sprite: {e}"),
+        })?;
+        let png = sprite.to_png().map_err(|e| ApiError {
+            message: format!("to_png: {e}"),
+        })?;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
         Ok(SpriteImage {
             width: sprite.width,
@@ -49,19 +50,20 @@ pub async fn decode_sprite(app: AppHandle, path: String) -> ApiResult<SpriteImag
         })
     })
     .await
-    .map_err(|e| ApiError { message: format!("join: {e}") })?
+    .map_err(|e| ApiError {
+        message: format!("join: {e}"),
+    })?
 }
 
 /// Read an indexed file's bytes, holding the storage lock only for the read.
 fn read_indexed(state: &AppState, path: &str) -> ApiResult<Vec<u8>> {
     let lock = state.opened.lock().expect("opened storage lock poisoned");
-    let opened = lock
-        .as_ref()
-        .ok_or_else(|| ApiError { message: "no storage open".into() })?;
-    let (storage_path, _) = opened
-        .index
-        .resolve(path)
-        .ok_or_else(|| ApiError { message: format!("not in index: {path}") })?;
+    let opened = lock.as_ref().ok_or_else(|| ApiError {
+        message: "no storage open".into(),
+    })?;
+    let (storage_path, _) = opened.index.resolve(path).ok_or_else(|| ApiError {
+        message: format!("not in index: {path}"),
+    })?;
     Ok(opened.storage.read(&storage_path)?)
 }
 
@@ -78,9 +80,9 @@ pub async fn export_path_as_png(
 ) -> ApiResult<ExportSummary> {
     let tasks: Vec<(String, String)> = {
         let lock = state.opened.lock().expect("opened storage lock poisoned");
-        let opened = lock
-            .as_ref()
-            .ok_or_else(|| ApiError { message: "no storage open".into() })?;
+        let opened = lock.as_ref().ok_or_else(|| ApiError {
+            message: "no storage open".into(),
+        })?;
         let mut out = Vec::new();
         if let Some((storage_path, _)) = opened.index.resolve(&virtual_path) {
             if is_sprite(&virtual_path) || is_dc6(&virtual_path) {
@@ -161,7 +163,7 @@ pub async fn export_path_as_png(
                 Ok(Err(e)) => errors.push(format!("{rel}: {e}")),
                 Err(_) => errors.push(format!("{rel}: decoder panicked (skipped)")),
             }
-            if (i as u32) % 8 == 0 || (i as u32) + 1 == total {
+            if (i as u32).is_multiple_of(8) || (i as u32) + 1 == total {
                 let _ = app_blocking.emit(
                     "export_progress",
                     ExportProgress {
@@ -185,7 +187,9 @@ pub async fn export_path_as_png(
         }
     })
     .await
-    .map_err(|e| ApiError { message: format!("join: {e}") })?;
+    .map_err(|e| ApiError {
+        message: format!("join: {e}"),
+    })?;
 
     let _ = app.emit("export_done", &result);
     Ok(result)
@@ -228,8 +232,9 @@ pub async fn decode_dc6(
         let bytes = read_indexed(&state, &path)?;
         let pal_path = palette.as_deref().unwrap_or(DEFAULT_DC6_PALETTE);
         let pal = dc6_palette(&state, pal_path);
-        let decoded =
-            dc6::decode(&bytes).map_err(|e| ApiError { message: format!("decode_dc6: {e}") })?;
+        let decoded = dc6::decode(&bytes).map_err(|e| ApiError {
+            message: format!("decode_dc6: {e}"),
+        })?;
         let mut frames = Vec::with_capacity(decoded.frames.len());
         for f in &decoded.frames {
             if (f.width as u64) * (f.height as u64) > MAX_IMAGE_PIXELS {
@@ -256,7 +261,9 @@ pub async fn decode_dc6(
         })
     })
     .await
-    .map_err(|e| ApiError { message: format!("join: {e}") })?
+    .map_err(|e| ApiError {
+        message: format!("join: {e}"),
+    })?
 }
 
 #[derive(Debug, Serialize)]
@@ -275,8 +282,9 @@ pub async fn decode_image(app: AppHandle, path: String) -> ApiResult<RasterImage
     tokio::task::spawn_blocking(move || -> ApiResult<RasterImage> {
         let state = app.state::<AppState>();
         let bytes = read_indexed(&state, &path)?;
-        let (rgba, width, height) = decode_to_rgba(&path, &bytes)
-            .map_err(|e| ApiError { message: format!("decode_image: {e}") })?;
+        let (rgba, width, height) = decode_to_rgba(&path, &bytes).map_err(|e| ApiError {
+            message: format!("decode_image: {e}"),
+        })?;
         if (width as u64) * (height as u64) > MAX_IMAGE_PIXELS {
             return Err(ApiError {
                 message: format!(
@@ -284,12 +292,17 @@ pub async fn decode_image(app: AppHandle, path: String) -> ApiResult<RasterImage
                 ),
             });
         }
-        let png_b64 =
-            rgba_to_png_b64(width, height, rgba).map_err(|e| ApiError { message: e })?;
-        Ok(RasterImage { width, height, png_b64 })
+        let png_b64 = rgba_to_png_b64(width, height, rgba).map_err(|e| ApiError { message: e })?;
+        Ok(RasterImage {
+            width,
+            height,
+            png_b64,
+        })
     })
     .await
-    .map_err(|e| ApiError { message: format!("join: {e}") })?
+    .map_err(|e| ApiError {
+        message: format!("join: {e}"),
+    })?
 }
 
 /// Decode a raster image to raw RGBA8 + dimensions via the `image` crate —
@@ -301,8 +314,7 @@ fn decode_to_rgba(path: &str, bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), Strin
             let ext = path.rsplit('.').next().unwrap_or("");
             let fmt = image::ImageFormat::from_extension(ext)
                 .ok_or_else(|| format!("unsupported image format: .{ext}"))?;
-            image::load_from_memory_with_format(bytes, fmt)
-                .map_err(|e| format!("decode: {e}"))?
+            image::load_from_memory_with_format(bytes, fmt).map_err(|e| format!("decode: {e}"))?
         }
     };
     let rgba = img.to_rgba8();
@@ -339,51 +351,67 @@ fn dc6_palette(state: &AppState, pal_path: &str) -> [u8; 768] {
 /// huge atlas just to shrink it.
 #[tauri::command]
 pub async fn thumbnail(app: AppHandle, path: String, max: u32) -> ApiResult<String> {
-  tokio::task::spawn_blocking(move || -> ApiResult<String> {
-    let state = app.state::<AppState>();
-    let bytes = read_indexed(&state, &path)?;
+    tokio::task::spawn_blocking(move || -> ApiResult<String> {
+        let state = app.state::<AppState>();
+        let bytes = read_indexed(&state, &path)?;
 
-    let img: image::DynamicImage = if is_sprite(&path) {
-        let sprite =
-            spa1::decode(&bytes).map_err(|e| ApiError { message: format!("spa1: {e}") })?;
-        let png = if sprite.frame_count > 1 {
-            sprite.frame_to_png(0)
+        let img: image::DynamicImage = if is_sprite(&path) {
+            let sprite = spa1::decode(&bytes).map_err(|e| ApiError {
+                message: format!("spa1: {e}"),
+            })?;
+            let png = if sprite.frame_count > 1 {
+                sprite.frame_to_png(0)
+            } else {
+                sprite.to_png()
+            }
+            .map_err(|e| ApiError {
+                message: format!("frame: {e}"),
+            })?;
+            image::load_from_memory_with_format(&png, image::ImageFormat::Png).map_err(|e| {
+                ApiError {
+                    message: format!("reload: {e}"),
+                }
+            })?
+        } else if is_dc6(&path) {
+            let pal = dc6_palette(&state, DEFAULT_DC6_PALETTE);
+            let d = dc6::decode(&bytes).map_err(|e| ApiError {
+                message: format!("dc6: {e}"),
+            })?;
+            let f = d.frames.first().ok_or_else(|| ApiError {
+                message: "dc6: no frames".into(),
+            })?;
+            image::DynamicImage::ImageRgba8(
+                image::RgbaImage::from_raw(f.width, f.height, dc6::to_rgba(f, &pal)).ok_or_else(
+                    || ApiError {
+                        message: "dc6: bad frame".into(),
+                    },
+                )?,
+            )
         } else {
-            sprite.to_png()
-        }
-        .map_err(|e| ApiError { message: format!("frame: {e}") })?;
-        image::load_from_memory_with_format(&png, image::ImageFormat::Png)
-            .map_err(|e| ApiError { message: format!("reload: {e}") })?
-    } else if is_dc6(&path) {
-        let pal = dc6_palette(&state, DEFAULT_DC6_PALETTE);
-        let d = dc6::decode(&bytes).map_err(|e| ApiError { message: format!("dc6: {e}") })?;
-        let f = d
-            .frames
-            .first()
-            .ok_or_else(|| ApiError { message: "dc6: no frames".into() })?;
-        image::DynamicImage::ImageRgba8(
-            image::RgbaImage::from_raw(f.width, f.height, dc6::to_rgba(f, &pal))
-                .ok_or_else(|| ApiError { message: "dc6: bad frame".into() })?,
-        )
-    } else {
-        let (rgba, w, h) = decode_to_rgba(&path, &bytes)
-            .map_err(|e| ApiError { message: format!("thumbnail: {e}") })?;
-        image::DynamicImage::ImageRgba8(
-            image::RgbaImage::from_raw(w, h, rgba)
-                .ok_or_else(|| ApiError { message: "invalid rgba buffer".into() })?,
-        )
-    };
+            let (rgba, w, h) = decode_to_rgba(&path, &bytes).map_err(|e| ApiError {
+                message: format!("thumbnail: {e}"),
+            })?;
+            image::DynamicImage::ImageRgba8(image::RgbaImage::from_raw(w, h, rgba).ok_or_else(
+                || ApiError {
+                    message: "invalid rgba buffer".into(),
+                },
+            )?)
+        };
 
-    let thumb = img.thumbnail(max, max);
-    let mut png: Vec<u8> = Vec::new();
-    thumb
-        .to_rgba8()
-        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
-        .map_err(|e| ApiError { message: format!("png: {e}") })?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(&png))
-  })
-  .await
-  .map_err(|e| ApiError { message: format!("join: {e}") })?
+        let thumb = img.thumbnail(max, max);
+        let mut png: Vec<u8> = Vec::new();
+        thumb
+            .to_rgba8()
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .map_err(|e| ApiError {
+                message: format!("png: {e}"),
+            })?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(&png))
+    })
+    .await
+    .map_err(|e| ApiError {
+        message: format!("join: {e}"),
+    })?
 }
 
 fn is_sprite(path: &str) -> bool {
@@ -421,7 +449,10 @@ fn decode_and_write(
         let opened = lock
             .as_ref()
             .ok_or_else(|| "storage closed during export".to_string())?;
-        opened.storage.read(storage_path).map_err(|e| e.to_string())?
+        opened
+            .storage
+            .read(storage_path)
+            .map_err(|e| e.to_string())?
     };
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;

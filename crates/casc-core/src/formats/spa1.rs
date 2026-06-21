@@ -83,8 +83,8 @@ impl SpA1 {
         let row_stride_dst = fw as usize * 4;
         let x_offset = frame as usize * fw as usize * 4;
         for y in 0..fh as usize {
-            let src = &self.pixels[y * row_stride_src + x_offset
-                ..y * row_stride_src + x_offset + row_stride_dst];
+            let src = &self.pixels
+                [y * row_stride_src + x_offset..y * row_stride_src + x_offset + row_stride_dst];
             out[y * row_stride_dst..(y + 1) * row_stride_dst].copy_from_slice(src);
         }
         encode_png(&out, fw, fh)
@@ -153,15 +153,17 @@ fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, CascError
             code: 0,
         });
     }
-    let img = image::RgbaImage::from_raw(width, height, rgba.to_vec()).ok_or(
-        CascError::Backend {
+    let img =
+        image::RgbaImage::from_raw(width, height, rgba.to_vec()).ok_or(CascError::Backend {
             op: "spa1: raw buffer doesn't match dims",
             code: 0,
-        },
-    )?;
+        })?;
     let mut out = Vec::with_capacity(width as usize * height as usize * 4 / 2);
     img.write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png)
-        .map_err(|_| CascError::Backend { op: "png encode failed", code: 0 })?;
+        .map_err(|_| CascError::Backend {
+            op: "png encode failed",
+            code: 0,
+        })?;
     Ok(out)
 }
 

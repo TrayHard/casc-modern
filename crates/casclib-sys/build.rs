@@ -19,7 +19,12 @@ fn main() {
     zlib.include(src.join("zlib"));
     zlib.warnings(false);
     for f in [
-        "adler32.c", "crc32.c", "inffast.c", "inflate.c", "inftrees.c", "zutil.c",
+        "adler32.c",
+        "crc32.c",
+        "inffast.c",
+        "inflate.c",
+        "inftrees.c",
+        "zutil.c",
     ] {
         zlib.file(src.join("zlib").join(f));
     }

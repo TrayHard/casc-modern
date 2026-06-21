@@ -48,10 +48,7 @@ enum Cmd {
         filter: Option<String>,
     },
     /// Write a file's contents to stdout.
-    Cat {
-        storage: PathBuf,
-        file: String,
-    },
+    Cat { storage: PathBuf, file: String },
     /// Decode a .dc6 frame to PNG using a palette (debug).
     Dc6Debug {
         storage: PathBuf,
@@ -72,13 +69,24 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Info { storage } => cmd_info(storage),
-        Cmd::List { storage, filter, json } => cmd_list(storage, filter, json),
+        Cmd::List {
+            storage,
+            filter,
+            json,
+        } => cmd_list(storage, filter, json),
         Cmd::Extract { storage, file, out } => cmd_extract(storage, file, out),
-        Cmd::ExtractAll { storage, out, filter } => cmd_extract_all(storage, out, filter),
+        Cmd::ExtractAll {
+            storage,
+            out,
+            filter,
+        } => cmd_extract_all(storage, out, filter),
         Cmd::Cat { storage, file } => cmd_cat(storage, file),
-        Cmd::Dc6Debug { storage, file, palette, out } => {
-            cmd_dc6_debug(storage, file, palette, out)
-        }
+        Cmd::Dc6Debug {
+            storage,
+            file,
+            palette,
+            out,
+        } => cmd_dc6_debug(storage, file, palette, out),
     }
 }
 
@@ -150,10 +158,7 @@ fn cmd_extract_all(path: PathBuf, out_dir: PathBuf, filter: Option<String>) -> R
         .collect();
 
     let pb = ProgressBar::new(files.len() as u64);
-    pb.set_style(
-        ProgressStyle::with_template("{bar:40.cyan/blue} {pos}/{len} {msg}")
-            .unwrap(),
-    );
+    pb.set_style(ProgressStyle::with_template("{bar:40.cyan/blue} {pos}/{len} {msg}").unwrap());
 
     for f in files {
         let target = out_dir.join(f.full_path.replace('\\', "/"));
@@ -178,7 +183,12 @@ fn cmd_dc6_debug(storage: PathBuf, file: String, palette: String, out: PathBuf) 
     let idx = s.build_index()?;
     let (sp, _) = idx.resolve(&file).context("dc6 not in index")?;
     let d = casc_core::formats::dc6::decode(&s.read(&sp)?)?;
-    eprintln!("dirs {} fpd {} frames {}", d.directions, d.frames_per_dir, d.frames.len());
+    eprintln!(
+        "dirs {} fpd {} frames {}",
+        d.directions,
+        d.frames_per_dir,
+        d.frames.len()
+    );
     let (psp, _) = idx.resolve(&palette).context("palette not in index")?;
     let pal = casc_core::formats::dc6::parse_dat_palette(&s.read(&psp)?)?;
     let f = &d.frames[0];
@@ -193,4 +203,3 @@ fn cmd_dc6_debug(storage: PathBuf, file: String, palette: String, out: PathBuf) 
     eprintln!("saved -> {}", out.display());
     Ok(())
 }
-
