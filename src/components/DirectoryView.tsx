@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button, Space, Table, Tag, Typography, message } from "antd";
 import type { TableProps } from "antd";
 import {
@@ -54,6 +54,10 @@ export function DirectoryView({
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [anchorKey, setAnchorKey] = useState<string | null>(null);
   const [sortState, setSortState] = useState<SortState>(DEFAULT_SORT);
+  // antd's virtual Table needs a numeric height + column widths; measure the
+  // table viewport (fills to the window bottom, tracks the splitter).
+  const areaRef = useRef<HTMLDivElement>(null);
+  const [area, setArea] = useState({ h: 420, w: 800 });
 
   const { prefs, installedLocales } = usePrefs();
   const visibleEntries = useMemo(() => {
@@ -90,6 +94,26 @@ export function DirectoryView({
       cancelled = true;
     };
   }, [path]);
+
+  useLayoutEffect(() => {
+    const el = areaRef.current;
+    if (!el) return;
+    const sync = () => {
+      const top = el.getBoundingClientRect().top;
+      const h = Math.max(window.innerHeight - top - 16, 180);
+      const w = el.clientWidth;
+      setArea((prev) => (prev.h === h && prev.w === w ? prev : { h, w }));
+    };
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    ro.observe(document.body);
+    window.addEventListener("resize", sync);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", sync);
+    };
+  }, []);
 
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
@@ -212,6 +236,80 @@ export function DirectoryView({
     }
   };
 
+  const SIZE_W = 120;
+  const KIND_W = 80;
+  const nameW = Math.max(160, area.w - SIZE_W - KIND_W - 8);
+  const totalW = nameW + SIZE_W + KIND_W;
+
+  // Hoisted so identity is stable across selection clicks / scroll (a fresh
+  // array each render makes the virtual Table re-derive columns every time).
+  const columns = useMemo<TableProps<Row>["columns"]>(
+    () => [
+      {
+        title: "Name",
+        dataIndex: "name",
+        key: "name",
+        width: nameW,
+        ellipsis: true,
+        render: (_v, row) => {
+          const notLocal = row.kind === "file" && !row.local;
+          return (
+            <span style={notLocal ? { opacity: 0.4 } : undefined}>
+              <span style={{ marginRight: 6 }}>
+                {row.kind === "up" ? (
+                  <RollbackOutlined />
+                ) : (
+                  <ThumbIcon
+                    name={row.name}
+                    path={row.path}
+                    isDir={row.kind === "dir"}
+                    size={row.size}
+                    where="browser"
+                  />
+                )}
+              </span>
+              {row.name}
+              {notLocal && (
+                <CloudOutlined style={{ marginLeft: 6 }} title="Not downloaded" />
+              )}
+            </span>
+          );
+        },
+        sorter: true,
+        sortOrder: sortState.columnKey === "name" ? sortState.order : null,
+        sortDirections: ["ascend", "descend"],
+      },
+      {
+        title: "Size",
+        dataIndex: "size",
+        key: "size",
+        width: SIZE_W,
+        align: "right",
+        render: (_v, row) =>
+          row.kind === "file" ? (
+            humanSize(row.size)
+          ) : (
+            <Text type="secondary">—</Text>
+          ),
+        sorter: true,
+        sortOrder: sortState.columnKey === "size" ? sortState.order : null,
+        sortDirections: ["ascend", "descend"],
+      },
+      {
+        title: "Kind",
+        key: "kind",
+        width: KIND_W,
+        render: (_v, row) =>
+          row.kind === "file" ? (
+            <Tag>{extOf(row.name) || "file"}</Tag>
+          ) : (
+            <Tag color="blue">dir</Tag>
+          ),
+      },
+    ],
+    [nameW, sortState.columnKey, sortState.order]
+  );
+
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <div
@@ -249,96 +347,39 @@ export function DirectoryView({
           </Button>
         </Space>
       </div>
-      <Table<Row>
-        className="dv-table"
-        size="small"
-        loading={loading}
-        dataSource={displayRows}
-        pagination={false}
-        scroll={{ y: "calc(100vh - 200px)" }}
-        sticky
-        onChange={onTableChange}
-        rowClassName={(row) =>
-          selectedKeys.has(row.key) ? "dv-row-selected" : ""
-        }
-        onRow={(row) => ({
-          onMouseDown: (e) => {
-            // Double-click / Shift-click would normally select text spanning
-            // rows; suppress that so users see a clean row highlight.
-            if (e.detail > 1 || e.shiftKey) e.preventDefault();
-          },
-          onClick: (e) => handleRowClick(row, e),
-          onDoubleClick: () => {
-            if (row.kind === "file") {
-              onNavigate({ kind: "file", path: row.path });
-            } else {
-              onNavigate({ kind: "dir", path: row.path });
-            }
-          },
-          onContextMenu: (e) => handleRowContextMenu(row, e),
-          style: { cursor: "pointer", userSelect: "none" },
-        })}
-        columns={[
-          {
-            title: "Name",
-            dataIndex: "name",
-            key: "name",
-            render: (_v, row) => {
-              const notLocal = row.kind === "file" && !row.local;
-              return (
-                <span style={notLocal ? { opacity: 0.4 } : undefined}>
-                  <span style={{ marginRight: 6 }}>
-                    {row.kind === "up" ? (
-                      <RollbackOutlined />
-                    ) : (
-                      <ThumbIcon
-                        name={row.name}
-                        path={row.path}
-                        isDir={row.kind === "dir"}
-                        size={row.size}
-                        where="browser"
-                      />
-                    )}
-                  </span>
-                  {row.name}
-                  {notLocal && (
-                    <CloudOutlined
-                      style={{ marginLeft: 6 }}
-                      title="Not downloaded"
-                    />
-                  )}
-                </span>
-              );
+      <div ref={areaRef} style={{ flex: 1, minHeight: 0 }}>
+        <Table<Row>
+          className="dv-table"
+          size="small"
+          loading={loading}
+          dataSource={displayRows}
+          pagination={false}
+          virtual
+          scroll={{ x: totalW, y: area.h }}
+          onChange={onTableChange}
+          rowClassName={(row) =>
+            selectedKeys.has(row.key) ? "dv-row-selected" : ""
+          }
+          onRow={(row) => ({
+            onMouseDown: (e) => {
+              // Double-click / Shift-click would normally select text spanning
+              // rows; suppress that so users see a clean row highlight.
+              if (e.detail > 1 || e.shiftKey) e.preventDefault();
             },
-            sorter: true,
-            sortOrder: sortState.columnKey === "name" ? sortState.order : null,
-            sortDirections: ["ascend", "descend"],
-          },
-          {
-            title: "Size",
-            dataIndex: "size",
-            key: "size",
-            width: 120,
-            align: "right",
-            render: (_v, row) =>
-              row.kind === "file" ? humanSize(row.size) : <Text type="secondary">—</Text>,
-            sorter: true,
-            sortOrder: sortState.columnKey === "size" ? sortState.order : null,
-            sortDirections: ["ascend", "descend"],
-          },
-          {
-            title: "Kind",
-            key: "kind",
-            width: 80,
-            render: (_v, row) =>
-              row.kind === "file" ? (
-                <Tag>{extOf(row.name) || "file"}</Tag>
-              ) : (
-                <Tag color="blue">dir</Tag>
-              ),
-          },
-        ]}
-      />
+            onClick: (e) => handleRowClick(row, e),
+            onDoubleClick: () => {
+              if (row.kind === "file") {
+                onNavigate({ kind: "file", path: row.path });
+              } else {
+                onNavigate({ kind: "dir", path: row.path });
+              }
+            },
+            onContextMenu: (e) => handleRowContextMenu(row, e),
+            style: { cursor: "pointer", userSelect: "none" },
+          })}
+          columns={columns}
+        />
+      </div>
     </div>
   );
 }

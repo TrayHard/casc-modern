@@ -94,12 +94,58 @@ function parseTsv(text: string): Parsed {
   return { headers, rows, tabular };
 }
 
+// Auto-size each column to the widest cell (or its header) it holds, so columns
+// fit their content on first render. We scan every row for the longest value per
+// column (cheap char-length compare), then measure just that one + the header on
+// a canvas — no DOM layout. Clamped so a stray long cell can't make a column huge.
+const MIN_COL_W = 48;
+const MAX_COL_W = 600;
+function measureColWidths(headers: string[], rows: string[][]): number[] {
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx) return headers.map(() => COL_W);
+  const ff =
+    getComputedStyle(document.body).fontFamily || "system-ui, sans-serif";
+  ctx.font = `12px ${ff}`;
+  const longest = headers.map(() => "");
+  for (const row of rows) {
+    for (let c = 0; c < headers.length; c++) {
+      const v = row[c] ?? "";
+      if (v.length > longest[c].length) longest[c] = v;
+    }
+  }
+  return headers.map((h, c) => {
+    const headerW = ctx.measureText(h).width + 16 + 16; // padding + sort arrow
+    const cellW = ctx.measureText(longest[c]).width + 16; // padding
+    const w = Math.ceil(Math.max(headerW, cellW));
+    return Math.min(MAX_COL_W, Math.max(MIN_COL_W, w));
+  });
+}
+
+// Auto-fit width for a single column (double-click on its resize handle). Same
+// metrics as measureColWidths but scans only the one column.
+function measureColWidth(header: string, rows: string[][], col: number): number {
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx) return COL_W;
+  const ff =
+    getComputedStyle(document.body).fontFamily || "system-ui, sans-serif";
+  ctx.font = `12px ${ff}`;
+  let longest = "";
+  for (const row of rows) {
+    const v = row[col] ?? "";
+    if (v.length > longest.length) longest = v;
+  }
+  const headerW = ctx.measureText(header).width + 16 + 16;
+  const cellW = ctx.measureText(longest).width + 16;
+  const w = Math.ceil(Math.max(headerW, cellW));
+  return Math.min(MAX_COL_W, Math.max(MIN_COL_W, w));
+}
+
 /// Tab-separated table viewer for D2R's Excel-style .txt files. Hand-rolled grid
 /// that virtualizes BOTH rows and columns (antd's virtual table renders every
 /// column, which janks on 100+-column tables), so a 106-column file only mounts
 /// the cells actually on screen.
 export function TsvViewer({ meta }: ViewerProps) {
-  const [bytes, setBytes] = useState<number[] | null>(null);
+  const [text, setText] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [opening, setOpening] = useState(false);
@@ -121,15 +167,15 @@ export function TsvViewer({ meta }: ViewerProps) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setBytes(null);
+    setText(null);
     setQuery("");
     setSortCol(null);
     setSortDir(null);
     api
-      .readFilePreview(meta.path, TSV_LIMIT)
+      .readTextPreview(meta.path, TSV_LIMIT)
       .then((p) => {
         if (!cancelled) {
-          setBytes(p.bytes);
+          setText(p.text);
           setTruncated(p.truncated);
         }
       })
@@ -161,25 +207,19 @@ export function TsvViewer({ meta }: ViewerProps) {
       ro.disconnect();
       window.removeEventListener("resize", sync);
     };
-    // Re-subscribe when the table first renders (bytes null -> data); the
+    // Re-subscribe when the table first renders (text null -> data); the
     // observer/listener handle live resizes after that.
-  }, [bytes]);
+  }, [text]);
 
   const parsed = useMemo(
-    () =>
-      bytes
-        ? parseTsv(
-            new TextDecoder("utf-8", { fatal: false }).decode(
-              new Uint8Array(bytes)
-            )
-          )
-        : null,
-    [bytes]
+    () => (text !== null ? parseTsv(text) : null),
+    [text]
   );
 
-  // Reset column widths to the default whenever a new table loads.
+  // Auto-size columns to their content whenever a new table loads (manual
+  // drag-resize still overrides per column afterwards).
   useEffect(() => {
-    if (parsed) setColWidths(parsed.headers.map(() => COL_W));
+    if (parsed) setColWidths(measureColWidths(parsed.headers, parsed.rows));
   }, [parsed]);
 
   function onResizeMove(e: MouseEvent) {
@@ -205,6 +245,16 @@ export function TsvViewer({ meta }: ViewerProps) {
     resizing.current = { col, startX: e.clientX, startW: colWidths[col] ?? COL_W };
     window.addEventListener("mousemove", onResizeMove);
     window.addEventListener("mouseup", onResizeEnd);
+  }
+  // Double-click the border → fit that column to its widest cell/header.
+  function autoFitCol(col: number) {
+    if (!parsed) return;
+    const w = measureColWidth(parsed.headers[col] ?? "", parsed.rows, col);
+    setColWidths((prev) => {
+      const next = prev.slice();
+      next[col] = w;
+      return next;
+    });
   }
 
   const filteredRows = useMemo(() => {
@@ -407,7 +457,11 @@ export function TsvViewer({ meta }: ViewerProps) {
                   <div
                     onMouseDown={(e) => onResizeStart(e, ci)}
                     onClick={(e) => e.stopPropagation()}
-                    title="Drag to resize"
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      autoFitCol(ci);
+                    }}
+                    title="Drag to resize · double-click to fit"
                     style={{
                       position: "absolute",
                       top: 0,

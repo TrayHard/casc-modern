@@ -263,6 +263,40 @@ fn read_text_file(path: String) -> ApiResult<String> {
     })
 }
 
+#[derive(Debug, Serialize)]
+struct TextPreview {
+    text: String,
+    size: u64,
+    truncated: bool,
+}
+
+/// Read up to `max_bytes` of an indexed file and return it decoded as UTF-8
+/// (lossy, BOM-stripped). The TSV table uses this instead of `read_file_preview`
+/// so a multi-MB table doesn't cross IPC as a boxed `number[]` the webview must
+/// re-copy into a `Uint8Array` and decode on the main thread.
+#[tauri::command]
+fn read_text_preview(
+    state: tauri::State<'_, AppState>,
+    path: String,
+    max_bytes: u32,
+) -> ApiResult<TextPreview> {
+    let lock = state.opened.lock().expect("opened storage lock poisoned");
+    let opened = lock.as_ref().ok_or_else(|| ApiError {
+        message: "no storage open".into(),
+    })?;
+    let (storage_path, size) = opened.index.resolve(&path).ok_or_else(|| ApiError {
+        message: format!("not in index: {path}"),
+    })?;
+    let raw = opened.storage.read_n(&storage_path, max_bytes as usize)?;
+    let truncated = (raw.len() as u64) < size;
+    let body = raw.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&raw);
+    Ok(TextPreview {
+        text: String::from_utf8_lossy(body).into_owned(),
+        size,
+        truncated,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
@@ -315,6 +349,7 @@ pub fn run() {
             close_storage,
             list_dir,
             read_file_preview,
+            read_text_preview,
             get_file_meta,
             get_settings,
             set_last_export_dir,
@@ -330,7 +365,8 @@ pub fn run() {
             export::export_paths,
             export::cancel_export,
             sprites::decode_sprite,
-            sprites::decode_dc6,
+            sprites::dc6_info,
+            sprites::dc6_frame,
             sprites::decode_image,
             sprites::thumbnail,
             sprites::export_path_as_png,

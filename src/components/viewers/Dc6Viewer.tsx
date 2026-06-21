@@ -1,4 +1,5 @@
 import {
+  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -18,7 +19,7 @@ import {
 } from "antd";
 import { ExportOutlined } from "@ant-design/icons";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { api, errMsg, Dc6Image } from "../../lib/api";
+import { api, errMsg, Dc6Info } from "../../lib/api";
 import type { ViewerProps } from "./types";
 
 const CHECKER =
@@ -56,29 +57,171 @@ const PALETTES = [
   { label: "Fechar", path: `${PAL_BASE}/fechar/pal.dat` },
 ];
 
+// ---- Lazy per-frame loader -------------------------------------------------
+// One frame is decoded + shipped at a time, keyed by path|palette|frame, so a
+// 200-glyph font no longer ships every frame up front and a palette switch only
+// refetches the frames actually on screen. Module-level cache survives remounts;
+// concurrency is capped so scrolling a big strip doesn't flood the backend.
+const frameCache = new Map<string, string>();
+const frameInflight = new Map<string, Promise<string | null>>();
+const MAX_DC6 = 4;
+let dc6Active = 0;
+const dc6Waiting: Array<() => void> = [];
+function dc6Acquire(): Promise<void> {
+  if (dc6Active < MAX_DC6) {
+    dc6Active += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    dc6Waiting.push(() => {
+      dc6Active += 1;
+      resolve();
+    });
+  });
+}
+function dc6Release(): void {
+  dc6Active -= 1;
+  dc6Waiting.shift()?.();
+}
+function frameKey(path: string, palette: string, frame: number): string {
+  return `${path}|${palette}|${frame}`;
+}
+async function loadFrame(
+  path: string,
+  palette: string,
+  frame: number
+): Promise<string | null> {
+  const key = frameKey(path, palette, frame);
+  const cached = frameCache.get(key);
+  if (cached) return cached;
+  const existing = frameInflight.get(key);
+  if (existing) return existing;
+  const run = (async () => {
+    await dc6Acquire();
+    try {
+      const f = await api.dc6Frame(path, palette, frame);
+      const url = `data:image/png;base64,${f.png_b64}`;
+      frameCache.set(key, url);
+      return url;
+    } catch {
+      return null;
+    } finally {
+      dc6Release();
+      frameInflight.delete(key);
+    }
+  })();
+  frameInflight.set(key, run);
+  return run;
+}
+
+// A frame thumbnail that only fetches its PNG once it scrolls into view.
+const Dc6Thumb = memo(function Dc6Thumb({
+  path,
+  palette,
+  frame,
+  selected,
+  onPick,
+}: {
+  path: string;
+  palette: string;
+  frame: number;
+  selected: boolean;
+  onPick: (i: number) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [url, setUrl] = useState<string | null>(
+    () => frameCache.get(frameKey(path, palette, frame)) ?? null
+  );
+
+  useEffect(() => {
+    const cached = frameCache.get(frameKey(path, palette, frame));
+    if (cached) {
+      setUrl(cached);
+      return;
+    }
+    setUrl(null);
+    const el = ref.current;
+    if (!el) return;
+    let cancelled = false;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          io.disconnect();
+          loadFrame(path, palette, frame).then((u) => {
+            if (!cancelled) setUrl(u);
+          });
+        }
+      },
+      { rootMargin: "150px" }
+    );
+    io.observe(el);
+    return () => {
+      cancelled = true;
+      io.disconnect();
+    };
+  }, [path, palette, frame]);
+
+  return (
+    <div
+      ref={ref}
+      onClick={() => onPick(frame)}
+      title={`Frame ${frame}`}
+      style={{
+        flex: "0 0 auto",
+        width: THUMB,
+        height: THUMB,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: 3,
+        background: CHECKER,
+        cursor: "pointer",
+        outline: selected ? "2px solid #1677ff" : "1px solid #303030",
+        outlineOffset: -1,
+      }}
+    >
+      {url && (
+        <img
+          src={url}
+          alt=""
+          draggable={false}
+          style={{
+            maxWidth: THUMB - 4,
+            maxHeight: THUMB - 4,
+            imageRendering: "pixelated",
+          }}
+        />
+      )}
+    </div>
+  );
+});
+
 /// Viewer for classic Diablo II `.dc6` graphics (indexed; palette applied in
-/// Rust). Steps through frames and lets the user switch palettes.
+/// Rust). Steps through frames and lets the user switch palettes. Frames load
+/// lazily so big fonts open instantly.
 export function Dc6Viewer({ meta }: ViewerProps) {
-  const [data, setData] = useState<Dc6Image | null>(null);
+  const [info, setInfo] = useState<Dc6Info | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
   const [frame, setFrame] = useState(0);
   const [palette, setPalette] = useState(PALETTES[0].path);
   const [exporting, setExporting] = useState(false);
+  const [mainUrl, setMainUrl] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
 
+  // Metadata is palette-independent — fetch it once per file.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setErr(null);
-    setData(null);
+    setInfo(null);
     setFrame(0);
     api
-      .decodeDc6(meta.path, palette)
+      .dc6Info(meta.path)
       .then((d) => {
-        if (!cancelled) setData(d);
+        if (!cancelled) setInfo(d);
       })
       .catch((e) => {
         if (!cancelled) {
@@ -92,7 +235,20 @@ export function Dc6Viewer({ meta }: ViewerProps) {
     return () => {
       cancelled = true;
     };
-  }, [meta.path, palette]);
+  }, [meta.path]);
+
+  // Load the displayed frame whenever it or the palette changes.
+  useEffect(() => {
+    if (!info) return;
+    let cancelled = false;
+    setMainUrl(frameCache.get(frameKey(meta.path, palette, frame)) ?? null);
+    loadFrame(meta.path, palette, frame).then((u) => {
+      if (!cancelled) setMainUrl(u);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [info, meta.path, palette, frame]);
 
   useLayoutEffect(() => {
     const el = boxRef.current;
@@ -102,14 +258,9 @@ export function Dc6Viewer({ meta }: ViewerProps) {
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [data]);
+  }, [info]);
 
-  const urls = useMemo(
-    () =>
-      data ? data.frames.map((f) => `data:image/png;base64,${f.png_b64}`) : [],
-    [data]
-  );
-  const cur = data && data.frames[frame] ? data.frames[frame] : null;
+  const cur = info && info.frames[frame] ? info.frames[frame] : null;
 
   const fitScale = useMemo(() => {
     if (!cur || !box.w || !box.h) return 1;
@@ -134,11 +285,11 @@ export function Dc6Viewer({ meta }: ViewerProps) {
   if (err) {
     return <Result status="error" title="Cannot decode DC6" subTitle={err} />;
   }
-  if (!data || !cur) {
+  if (!info || !cur) {
     return <Spin spinning={loading} />;
   }
 
-  const multi = data.frame_count > 1;
+  const multi = info.frame_count > 1;
   const pct = Math.round(scale * 100);
 
   return (
@@ -149,8 +300,8 @@ export function Dc6Viewer({ meta }: ViewerProps) {
         </span>
         {multi && (
           <span style={{ ...PILL, color: "#69b1ff" }}>
-            {data.frame_count} frames
-            {data.directions > 1 ? ` · ${data.directions} dirs` : ""}
+            {info.frame_count} frames
+            {info.directions > 1 ? ` · ${info.directions} dirs` : ""}
           </span>
         )}
         <span style={{ color: "#aaa" }}>Palette</span>
@@ -188,37 +339,18 @@ export function Dc6Viewer({ meta }: ViewerProps) {
       </Space>
 
       {multi && (
-        <div style={{ display: "flex", gap: GAP, overflowX: "auto", paddingBottom: 4 }}>
-          {data.frames.map((_f, i) => (
-            <div
+        <div
+          style={{ display: "flex", gap: GAP, overflowX: "auto", paddingBottom: 4 }}
+        >
+          {Array.from({ length: info.frame_count }, (_, i) => (
+            <Dc6Thumb
               key={i}
-              onClick={() => setFrame(i)}
-              title={`Frame ${i}`}
-              style={{
-                flex: "0 0 auto",
-                width: THUMB,
-                height: THUMB,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: 3,
-                background: CHECKER,
-                cursor: "pointer",
-                outline: i === frame ? "2px solid #1677ff" : "1px solid #303030",
-                outlineOffset: -1,
-              }}
-            >
-              <img
-                src={urls[i]}
-                alt=""
-                draggable={false}
-                style={{
-                  maxWidth: THUMB - 4,
-                  maxHeight: THUMB - 4,
-                  imageRendering: "pixelated",
-                }}
-              />
-            </div>
+              path={meta.path}
+              palette={palette}
+              frame={i}
+              selected={i === frame}
+              onPick={setFrame}
+            />
           ))}
         </div>
       )}
@@ -233,17 +365,31 @@ export function Dc6Viewer({ meta }: ViewerProps) {
         }}
       >
         <div style={{ display: "inline-block", background: CHECKER }}>
-          <img
-            src={urls[frame]}
-            alt={meta.path}
-            style={{
-              width: cur.width * scale,
-              height: cur.height * scale,
-              imageRendering: "pixelated",
-              display: "block",
-            }}
-            draggable={false}
-          />
+          {mainUrl ? (
+            <img
+              src={mainUrl}
+              alt={meta.path}
+              style={{
+                width: cur.width * scale,
+                height: cur.height * scale,
+                imageRendering: "pixelated",
+                display: "block",
+              }}
+              draggable={false}
+            />
+          ) : (
+            <div
+              style={{
+                width: cur.width * scale,
+                height: cur.height * scale,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Spin />
+            </div>
+          )}
         </div>
       </div>
     </div>
