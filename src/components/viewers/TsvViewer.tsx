@@ -114,7 +114,9 @@ export function TsvViewer({ meta }: ViewerProps) {
       ro.disconnect();
       window.removeEventListener("resize", sync);
     };
-  });
+    // Re-subscribe when the table first renders (bytes null -> data); the
+    // observer/listener handle live resizes after that.
+  }, [bytes]);
 
   const parsed = useMemo(
     () =>
