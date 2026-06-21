@@ -64,6 +64,10 @@ export function StorageTree({
   const [scrollWidth, setScrollWidth] = useState(400);
   /// Dirs we've already fetched children for. Includes "" (root) once loaded.
   const loadedRef = useRef<Set<string>>(new Set());
+  /// Raw (unfiltered, undecorated) entries per loaded dir, so a filter/icon
+  /// change can re-derive the visible tree in place without refetching or
+  /// losing expansion state.
+  const rawRef = useRef<Map<string, IndexEntry[]>>(new Map());
 
   const { prefs, installedLocales, iconTheme } = usePrefs();
   const hideLocale = prefs.hide_other_locales;
@@ -122,20 +126,46 @@ export function StorageTree({
     [thumbsOnTree, iconTheme]
   );
 
-  // Initial root load + reset on new storage (or when filter/icons change).
+  // Rebuild the visible tree from cached raw entries — re-applies the current
+  // filter + icon decoration to every loaded dir with no backend round-trip.
+  const rebuildFromRaw = useCallback((): Node[] => {
+    const build = (dir: string): Node[] =>
+      filterEntries(rawRef.current.get(dir) ?? []).map((e) => {
+        const node = entryToNode(e);
+        if (e.is_dir && rawRef.current.has(e.path)) {
+          node.children = build(e.path);
+        }
+        return node;
+      });
+    return build("");
+  }, [filterEntries, entryToNode]);
+
+  // Reset + fetch root ONLY when a new storage opens. Kept separate from the
+  // re-decorate effect below so a settings toggle never wipes expansion state
+  // or refetches the root.
   useEffect(() => {
     setData([]);
     setExpanded([]);
     setSelected([]);
     loadedRef.current = new Set();
+    rawRef.current = new Map();
     api
       .listDir("")
       .then((entries) => {
-        setData(filterEntries(entries).map(entryToNode));
+        rawRef.current.set("", entries);
         loadedRef.current.add("");
+        setData(rebuildFromRaw());
       })
       .catch(() => setData([]));
-  }, [generation, filterEntries, entryToNode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [generation]);
+
+  // Re-decorate / re-filter in place when icon or filter prefs change, keeping
+  // expansion, selection, and already-loaded children intact.
+  useEffect(() => {
+    if (loadedRef.current.size === 0) return;
+    setData(rebuildFromRaw());
+  }, [rebuildFromRaw]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -153,12 +183,13 @@ export function StorageTree({
     const INDENT = 24;
     const CHAR = 7.2;
     const BASE = 56; // switcher + icon + padding
+    const expandedSet = new Set(expanded.map(String));
     let max = 0;
     const walk = (nodes: Node[], depth: number) => {
       for (const n of nodes) {
         const name = n.name ?? String(n.key).split("/").pop() ?? "";
         max = Math.max(max, BASE + depth * INDENT + name.length * CHAR);
-        if (n.children && expanded.includes(n.key)) {
+        if (n.children && expandedSet.has(String(n.key))) {
           walk(n.children as Node[], depth + 1);
         }
       }
@@ -172,10 +203,11 @@ export function StorageTree({
     async (key: string): Promise<void> => {
       if (loadedRef.current.has(key)) return;
       const children = await api.listDir(key);
+      rawRef.current.set(key, children);
+      loadedRef.current.add(key);
       setData((prev) =>
         insertChildren(prev, key, filterEntries(children).map(entryToNode))
       );
-      loadedRef.current.add(key);
     },
     [filterEntries, entryToNode]
   );

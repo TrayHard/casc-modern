@@ -25,14 +25,21 @@ export function PrefsProvider({
   installedLocales: number;
   children: ReactNode;
 }) {
-  const value = useMemo<PrefsValue>(() => {
-    const p = prefs ?? DEFAULT_PREFERENCES;
-    return {
-      prefs: p,
-      installedLocales,
-      iconTheme: resolveTheme(p.icon_theme, p.custom_icon_themes),
-    };
-  }, [prefs, installedLocales]);
+  const p = prefs ?? DEFAULT_PREFERENCES;
+  // Resolve the icon theme keyed on its *value*, not the prefs object identity:
+  // getSettings() hands back a fresh object on every save, so without this a
+  // change to an icon-irrelevant pref (overscan, JSON limit, …) would churn the
+  // theme identity and force every icon consumer + the whole tree to re-decorate.
+  const customSig = JSON.stringify(p.custom_icon_themes);
+  const iconTheme = useMemo(
+    () => resolveTheme(p.icon_theme, p.custom_icon_themes),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [p.icon_theme, customSig]
+  );
+  const value = useMemo<PrefsValue>(
+    () => ({ prefs: p, installedLocales, iconTheme }),
+    [p, installedLocales, iconTheme]
+  );
   return (
     <PrefsContext.Provider value={value}>{children}</PrefsContext.Provider>
   );

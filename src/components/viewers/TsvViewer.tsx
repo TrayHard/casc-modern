@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import { Alert, Button, Empty, Input, Space, Spin, Typography, message } from "antd";
 import { ExportOutlined } from "@ant-design/icons";
@@ -25,6 +26,52 @@ const HEADER_BG = "#1f1f1f";
 const INDEX_BG = "#161616";
 const BORDER = "1px solid rgba(255,255,255,0.12)";
 const BORDER_SOFT = "1px solid rgba(255,255,255,0.06)";
+
+// Hoisted static cell styles. Each virtual cell spreads one of these and adds
+// only its dynamic left/width/height (+ header background) — so a scroll frame
+// no longer reconstructs hundreds of full style objects from scratch.
+const HEADER_CELL_BASE: CSSProperties = {
+  position: "absolute",
+  top: 0,
+  height: HEADER_H,
+  boxSizing: "border-box",
+  padding: "0 8px",
+  display: "flex",
+  alignItems: "center",
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  fontWeight: 600,
+  borderRight: BORDER,
+  borderBottom: BORDER,
+};
+const INDEX_CELL_BASE: CSSProperties = {
+  position: "sticky",
+  left: 0,
+  zIndex: 1,
+  width: INDEX_W,
+  boxSizing: "border-box",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: INDEX_BG,
+  color: "#888",
+  borderRight: BORDER,
+  borderBottom: BORDER_SOFT,
+};
+const BODY_CELL_BASE: CSSProperties = {
+  position: "absolute",
+  top: 0,
+  boxSizing: "border-box",
+  padding: "0 8px",
+  display: "flex",
+  alignItems: "center",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  borderRight: BORDER_SOFT,
+  borderBottom: BORDER_SOFT,
+};
 
 type SortDir = "asc" | "desc" | null;
 type Parsed = { headers: string[]; rows: string[][]; tabular: boolean };
@@ -347,22 +394,10 @@ export function TsvViewer({ meta }: ViewerProps) {
                   }}
                   title={label}
                   style={{
-                    position: "absolute",
-                    top: 0,
+                    ...HEADER_CELL_BASE,
                     left: INDEX_W + vc.start,
                     width: vc.size,
-                    height: HEADER_H,
-                    boxSizing: "border-box",
-                    padding: "0 8px",
-                    display: "flex",
-                    alignItems: "center",
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    fontWeight: 600,
                     background: active ? "#2a2a2a" : HEADER_BG,
-                    borderRight: BORDER,
-                    borderBottom: BORDER,
                   }}
                 >
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -401,43 +436,17 @@ export function TsvViewer({ meta }: ViewerProps) {
                   width: totalW,
                 }}
               >
-                <div
-                  style={{
-                    position: "sticky",
-                    left: 0,
-                    zIndex: 1,
-                    width: INDEX_W,
-                    height: vr.size,
-                    boxSizing: "border-box",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: INDEX_BG,
-                    color: "#888",
-                    borderRight: BORDER,
-                    borderBottom: BORDER_SOFT,
-                  }}
-                >
+                <div style={{ ...INDEX_CELL_BASE, height: vr.size }}>
                   {vr.index + 1}
                 </div>
                 {virtualCols.map((vc) => (
                   <div
                     key={vc.key}
                     style={{
-                      position: "absolute",
-                      top: 0,
+                      ...BODY_CELL_BASE,
                       left: INDEX_W + vc.start,
                       width: vc.size,
                       height: vr.size,
-                      boxSizing: "border-box",
-                      padding: "0 8px",
-                      display: "flex",
-                      alignItems: "center",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      borderRight: BORDER_SOFT,
-                      borderBottom: BORDER_SOFT,
                     }}
                   >
                     {cells[vc.index]}

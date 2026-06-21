@@ -56,6 +56,9 @@ export function SpriteViewer({ meta }: ViewerProps) {
   const [err, setErr] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
   const [frame, setFrame] = useState(0);
+  // The "+N" overflow popover builds a thumbnail per frame; only do that while
+  // it's actually open, so zoom-slider drags don't rebuild the whole grid.
+  const [overflowOpen, setOverflowOpen] = useState(false);
   const stripRef = useRef<HTMLDivElement>(null);
   const [stripWidth, setStripWidth] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -272,21 +275,25 @@ export function SpriteViewer({ meta }: ViewerProps) {
               trigger="hover"
               placement="bottomLeft"
               mouseLeaveDelay={0.3}
+              open={overflowOpen}
+              onOpenChange={setOverflowOpen}
               content={
-                <div
-                  style={{
-                    maxWidth: 380,
-                    maxHeight: 320,
-                    overflow: "auto",
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: GAP,
-                  }}
-                >
-                  {Array.from({ length: data.frame_count }, (_, i) =>
-                    thumb(i, THUMB)
-                  )}
-                </div>
+                overflowOpen ? (
+                  <div
+                    style={{
+                      maxWidth: 380,
+                      maxHeight: 320,
+                      overflow: "auto",
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: GAP,
+                    }}
+                  >
+                    {Array.from({ length: data.frame_count }, (_, i) =>
+                      thumb(i, THUMB)
+                    )}
+                  </div>
+                ) : null
               }
             >
               <div

@@ -36,6 +36,16 @@ pub async fn decode_sprite(app: AppHandle, path: String) -> ApiResult<SpriteImag
         let sprite = spa1::decode(&bytes).map_err(|e| ApiError {
             message: format!("decode_sprite: {e}"),
         })?;
+        // Reject before the multi-second PNG encode + multi-MB base64 IPC, the
+        // same way decode_image/decode_dc6 guard their pixel budgets.
+        if (sprite.width as u64) * (sprite.height as u64) > MAX_IMAGE_PIXELS {
+            return Err(ApiError {
+                message: format!(
+                    "atlas is {}×{} — too large to preview inline; export it instead",
+                    sprite.width, sprite.height
+                ),
+            });
+        }
         let png = sprite.to_png().map_err(|e| ApiError {
             message: format!("to_png: {e}"),
         })?;
