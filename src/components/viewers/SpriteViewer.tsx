@@ -57,9 +57,6 @@ export function SpriteViewer({ meta }: ViewerProps) {
   const [err, setErr] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
   const [frame, setFrame] = useState(0);
-  // The "+N" overflow popover builds a thumbnail per frame; only do that while
-  // it's actually open, so zoom-slider drags don't rebuild the whole grid.
-  const [overflowOpen, setOverflowOpen] = useState(false);
   const stripRef = useRef<HTMLDivElement>(null);
   const [stripWidth, setStripWidth] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -160,6 +157,64 @@ export function SpriteViewer({ meta }: ViewerProps) {
     const s = Math.min((box.w - 24) / w, (box.h - 24) / h);
     return s > 0 ? Math.min(1, s) : 1;
   }, [data, box]);
+
+  // The full frame grid for the "+N" overflow popover. Memoized so it isn't
+  // rebuilt on every zoom-slider tick — only when the atlas, its URL, or the
+  // selected frame changes. Always provided (never gated to null) so antd keeps
+  // the popover trigger wired up and clicking "+N" actually opens it.
+  const overflowGrid = useMemo(() => {
+    if (!data || !dataUrl) return null;
+    const fw = data.frame_width;
+    const fh = data.frame_height;
+    const ts = THUMB / Math.max(fw, fh);
+    return (
+      <div
+        style={{
+          maxWidth: 380,
+          maxHeight: 320,
+          overflow: "auto",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: GAP,
+        }}
+      >
+        {Array.from({ length: data.frame_count }, (_, i) => (
+          <div
+            key={i}
+            onClick={() => setFrame(i)}
+            title={`Frame ${i}`}
+            style={{
+              flex: "0 0 auto",
+              width: THUMB,
+              height: THUMB,
+              position: "relative",
+              overflow: "hidden",
+              cursor: "pointer",
+              borderRadius: 3,
+              background: CHECKER,
+              outline: i === frame ? "2px solid #1677ff" : "1px solid #303030",
+              outlineOffset: -1,
+            }}
+          >
+            <img
+              src={dataUrl}
+              alt=""
+              draggable={false}
+              style={{
+                position: "absolute",
+                left: -i * fw * ts + (THUMB - fw * ts) / 2,
+                top: (THUMB - fh * ts) / 2,
+                width: data.width * ts,
+                height: data.height * ts,
+                imageRendering: "pixelated",
+                pointerEvents: "none",
+              }}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }, [data, dataUrl, frame]);
 
   if (err) {
     return <Result status="error" title="Cannot decode sprite" subTitle={err} />;
@@ -282,29 +337,9 @@ export function SpriteViewer({ meta }: ViewerProps) {
           {Array.from({ length: visibleCount }, (_, i) => thumb(i, THUMB))}
           {overflow > 0 && (
             <Popover
-              trigger="hover"
+              trigger="click"
               placement="bottomLeft"
-              mouseLeaveDelay={0.3}
-              open={overflowOpen}
-              onOpenChange={setOverflowOpen}
-              content={
-                overflowOpen ? (
-                  <div
-                    style={{
-                      maxWidth: 380,
-                      maxHeight: 320,
-                      overflow: "auto",
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: GAP,
-                    }}
-                  >
-                    {Array.from({ length: data.frame_count }, (_, i) =>
-                      thumb(i, THUMB)
-                    )}
-                  </div>
-                ) : null
-              }
+              content={overflowGrid}
             >
               <div
                 style={{
