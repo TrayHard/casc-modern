@@ -7,8 +7,8 @@ import type { Selection } from "./selection";
 
 export interface ContextActions {
   open: (s: Selection) => void;
-  exportPath: (path: string) => Promise<void>;
-  exportPaths: (paths: string[]) => Promise<void>;
+  exportPath: (path: string, keepFullPath?: boolean) => Promise<void>;
+  exportPaths: (paths: string[], keepFullPath?: boolean) => Promise<void>;
   exportPathAsPng: (path: string) => Promise<void>;
   toggleBookmark: (target: Selection) => void;
 }
@@ -40,6 +40,7 @@ export function buildContextMenu({ target, isBookmarked }: BuildArgs): ItemType[
       bookmarkItem,
       { type: "divider" },
       { key: "export", label: "Export file…" },
+      { key: "export-fullpath", label: "Export file with full path…" },
     ];
     if (isPngExportable(target.path)) {
       items.push({ key: "export-png", label: "Export as PNG…" });
@@ -57,6 +58,7 @@ export function buildContextMenu({ target, isBookmarked }: BuildArgs): ItemType[
     bookmarkItem,
     { type: "divider" },
     { key: "export", label: "Export folder…" },
+    { key: "export-fullpath", label: "Export folder with full path…" },
     { key: "export-png", label: "Export graphics here as PNG…" },
     { type: "divider" },
     { key: "copy-path", label: target.path ? "Copy path" : "Copy '<root>'" },
@@ -69,6 +71,7 @@ export function buildContextMenu({ target, isBookmarked }: BuildArgs): ItemType[
 export function buildMultiContextMenu(count: number): ItemType[] {
   return [
     { key: "export", label: `Export ${count} selected…` },
+    { key: "export-fullpath", label: `Export ${count} with full path…` },
     { type: "divider" },
     { key: "copy-paths", label: "Copy paths" },
   ];
@@ -82,6 +85,9 @@ export async function handleMultiContextAction(
   switch (key) {
     case "export":
       await actions.exportPaths(paths);
+      return;
+    case "export-fullpath":
+      await actions.exportPaths(paths, true);
       return;
     case "copy-paths":
       try {
@@ -108,6 +114,9 @@ export async function handleContextAction(
       return;
     case "export":
       await actions.exportPath(target.path);
+      return;
+    case "export-fullpath":
+      await actions.exportPath(target.path, true);
       return;
     case "export-png":
       await actions.exportPathAsPng(target.path);

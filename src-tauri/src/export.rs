@@ -37,21 +37,38 @@ pub struct ExportSummary {
 /// the path (relative to the chosen target dir) it should be written to.
 type Task = (String, u64, String);
 
-/// Collect the work list for a single virtual path.
-///
-/// A file yields its basename. A directory yields every file beneath it; when
-/// `under_basename` is true the directory's own name is kept as the leading
-/// output segment (so sibling selections don't collide), and when false its
-/// contents are flattened directly into the target — the latter preserves the
-/// long-standing single-directory "Export folder…" behavior.
-fn collect_tasks(opened: &Opened, virtual_path: &str, under_basename: bool) -> Vec<Task> {
+/// How a collected file's destination (relative to the chosen target dir) is
+/// derived from its virtual path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Layout {
+    /// Flatten the selected directory's contents directly into the target —
+    /// the long-standing single-directory "Export folder…" behavior. A file
+    /// yields its basename.
+    Flat,
+    /// Keep the selected item's own name as the leading output segment so
+    /// sibling selections don't collide — the multi-select export default. A
+    /// file yields its basename.
+    UnderBasename,
+    /// Recreate the full virtual path from the storage root under the target —
+    /// mirrors the original CascView "keep full path" export, so a whole tree
+    /// can be reproduced from any selection.
+    FullTree,
+}
+
+/// Collect the work list for a single virtual path, laying out destinations
+/// according to `layout` (see [`Layout`]).
+fn collect_tasks(opened: &Opened, virtual_path: &str, layout: Layout) -> Vec<Task> {
     if let Some((storage_path, size)) = opened.index.resolve(virtual_path) {
-        let basename = virtual_path
-            .rsplit('/')
-            .next()
-            .unwrap_or(virtual_path)
-            .to_string();
-        return vec![(storage_path, size, basename)];
+        let rel = if layout == Layout::FullTree {
+            virtual_path.to_string()
+        } else {
+            virtual_path
+                .rsplit('/')
+                .next()
+                .unwrap_or(virtual_path)
+                .to_string()
+        };
+        return vec![(storage_path, size, rel)];
     }
 
     // Directory case — collect every file under the prefix.
@@ -65,26 +82,32 @@ fn collect_tasks(opened: &Opened, virtual_path: &str, under_basename: bool) -> V
 
     let mut out = Vec::new();
     for (norm_path, storage_path, size, _avail) in opened.index.iter_files() {
-        let rel = if prefix.is_empty() {
-            Some(norm_path.to_string())
-        } else {
-            norm_path.strip_prefix(&prefix).map(|s| s.to_string())
-        };
-        if let Some(rel) = rel {
-            let rel = if under_basename && !dir_name.is_empty() {
-                format!("{dir_name}/{rel}")
-            } else {
-                rel
-            };
-            out.push((storage_path.to_string(), size, rel));
+        // Files outside the selected prefix don't belong to this selection.
+        if !prefix.is_empty() && !norm_path.starts_with(prefix.as_str()) {
+            continue;
         }
+        let rel = match layout {
+            Layout::FullTree => norm_path.to_string(),
+            Layout::Flat | Layout::UnderBasename => {
+                let stripped = norm_path.strip_prefix(&prefix).unwrap_or(norm_path);
+                if layout == Layout::UnderBasename && !dir_name.is_empty() {
+                    format!("{dir_name}/{stripped}")
+                } else {
+                    stripped.to_string()
+                }
+            }
+        };
+        out.push((storage_path.to_string(), size, rel));
     }
     out
 }
 
 /// Export a virtual path (file or directory) to `target_dir`.
-/// For directories, the storage layout under the path is preserved
-/// relative to `target_dir`.
+///
+/// With `keep_full_path` the file's complete virtual path from the storage
+/// root is recreated under `target_dir` (the original CascView behavior);
+/// otherwise a directory's contents are flattened directly into `target_dir`
+/// and a file keeps only its basename.
 #[tauri::command]
 pub async fn export_path(
     app: AppHandle,
@@ -92,13 +115,19 @@ pub async fn export_path(
     export_state: tauri::State<'_, ExportState>,
     virtual_path: String,
     target_dir: String,
+    keep_full_path: bool,
 ) -> ApiResult<ExportSummary> {
+    let layout = if keep_full_path {
+        Layout::FullTree
+    } else {
+        Layout::Flat
+    };
     let tasks = {
         let lock = state.opened.lock().expect("opened storage lock poisoned");
         let opened = lock.as_ref().ok_or_else(|| ApiError {
             message: "no storage open".into(),
         })?;
-        let tasks = collect_tasks(opened, &virtual_path, false);
+        let tasks = collect_tasks(opened, &virtual_path, layout);
         if tasks.is_empty() {
             return Err(ApiError {
                 message: format!("{virtual_path}: nothing to export"),
@@ -111,10 +140,11 @@ pub async fn export_path(
 }
 
 /// Export an explicit list of virtual paths (files and/or directories) to
-/// `target_dir` — backs the directory view's multi-select export. Files keep
-/// their basename; directories keep their own name as the leading output
-/// segment. Duplicate destinations (e.g. a file selected alongside its parent
-/// folder) are written only once.
+/// `target_dir` — backs the directory view's multi-select export. By default
+/// files keep their basename and directories keep their own name as the
+/// leading output segment; with `keep_full_path` every file's complete virtual
+/// path from the storage root is recreated instead. Duplicate destinations
+/// (e.g. a file selected alongside its parent folder) are written only once.
 #[tauri::command]
 pub async fn export_paths(
     app: AppHandle,
@@ -122,7 +152,13 @@ pub async fn export_paths(
     export_state: tauri::State<'_, ExportState>,
     paths: Vec<String>,
     target_dir: String,
+    keep_full_path: bool,
 ) -> ApiResult<ExportSummary> {
+    let layout = if keep_full_path {
+        Layout::FullTree
+    } else {
+        Layout::UnderBasename
+    };
     let tasks = {
         let lock = state.opened.lock().expect("opened storage lock poisoned");
         let opened = lock.as_ref().ok_or_else(|| ApiError {
@@ -131,7 +167,7 @@ pub async fn export_paths(
         let mut out: Vec<Task> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         for p in &paths {
-            for task in collect_tasks(opened, p, true) {
+            for task in collect_tasks(opened, p, layout) {
                 if seen.insert(task.2.clone()) {
                     out.push(task);
                 }

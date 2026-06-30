@@ -151,10 +151,11 @@ export const api = {
     }),
   cancelSearch: () => invoke<void>("cancel_search"),
 
-  exportPath: (virtualPath: string, targetDir: string) =>
-    invoke<ExportSummary>("export_path", { virtualPath, targetDir }),
-  exportPaths: (paths: string[], targetDir: string) =>
-    invoke<ExportSummary>("export_paths", { paths, targetDir }),
+  /** `keepFullPath` recreates the storage-root tree under the target dir. */
+  exportPath: (virtualPath: string, targetDir: string, keepFullPath = false) =>
+    invoke<ExportSummary>("export_path", { virtualPath, targetDir, keepFullPath }),
+  exportPaths: (paths: string[], targetDir: string, keepFullPath = false) =>
+    invoke<ExportSummary>("export_paths", { paths, targetDir, keepFullPath }),
   exportPathAsPng: (virtualPath: string, targetDir: string) =>
     invoke<ExportSummary>("export_path_as_png", { virtualPath, targetDir }),
   cancelExport: () => invoke<void>("cancel_export"),

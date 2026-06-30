@@ -8,10 +8,13 @@ interface UseExporterResult {
   running: boolean;
   progress: ExportProgress | null;
   done: ExportSummary | null;
-  /** Trigger the export flow for a virtual path (file or directory). */
-  exportPath: (virtualPath: string) => Promise<void>;
+  /**
+   * Trigger the export flow for a virtual path (file or directory). With
+   * `keepFullPath` the storage-root folder tree is recreated under the target.
+   */
+  exportPath: (virtualPath: string, keepFullPath?: boolean) => Promise<void>;
   /** Export an explicit list of virtual paths (multi-select). */
-  exportPaths: (paths: string[]) => Promise<void>;
+  exportPaths: (paths: string[], keepFullPath?: boolean) => Promise<void>;
   /** Convert every `.sprite` under `virtualPath` to PNG and export. */
   exportPathAsPng: (virtualPath: string) => Promise<void>;
   cancel: () => Promise<void>;
@@ -78,12 +81,16 @@ export function useExporter(
     }
   }
 
-  function exportPath(virtualPath: string) {
-    return runExport(virtualPath, (t) => api.exportPath(virtualPath, t));
+  function exportPath(virtualPath: string, keepFullPath = false) {
+    return runExport(virtualPath, (t) =>
+      api.exportPath(virtualPath, t, keepFullPath)
+    );
   }
 
-  function exportPaths(paths: string[]) {
-    return runExport(paths.join(","), (t) => api.exportPaths(paths, t));
+  function exportPaths(paths: string[], keepFullPath = false) {
+    return runExport(paths.join(","), (t) =>
+      api.exportPaths(paths, t, keepFullPath)
+    );
   }
 
   function exportPathAsPng(virtualPath: string) {
