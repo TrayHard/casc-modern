@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-01
+
+### Added
+- **Export preserving the full folder tree**: a new "…with full path" entry in
+  the file, folder, and multi-select context menus recreates each item's
+  complete virtual path from the storage root under the chosen target — pick a
+  folder (or the root) and the original directory structure is reproduced on
+  disk, mirroring the classic CascView "keep full path" extraction. The
+  existing entries are unchanged: "Export folder…" still flattens a folder's
+  contents directly into the target.
+
 ## [0.2.0] - 2026-06-21
 
 ### Added
@@ -174,6 +185,7 @@ Initial public release.
 - Bulk PNG export no longer aborts the whole batch on a single malformed
   sprite, and large atlases no longer overflow.
 
+[0.3.0]: https://github.com/TrayHard/casc-modern/releases/tag/v0.3.0
 [0.2.0]: https://github.com/TrayHard/casc-modern/releases/tag/v0.2.0
 [0.1.6]: https://github.com/TrayHard/casc-modern/releases/tag/v0.1.6
 [0.1.5]: https://github.com/TrayHard/casc-modern/releases/tag/v0.1.5
