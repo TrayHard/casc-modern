@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ImageExportFormat } from "./imageExport";
 
 export type StorageInfo = {
   product: string;
@@ -156,8 +157,8 @@ export const api = {
     invoke<ExportSummary>("export_path", { virtualPath, targetDir, keepFullPath }),
   exportPaths: (paths: string[], targetDir: string, keepFullPath = false) =>
     invoke<ExportSummary>("export_paths", { paths, targetDir, keepFullPath }),
-  exportPathAsPng: (virtualPath: string, targetDir: string) =>
-    invoke<ExportSummary>("export_path_as_png", { virtualPath, targetDir }),
+  exportGraphics: (paths: string[], targetDir: string, format: ImageExportFormat, quality: number) =>
+    invoke<ExportSummary>("export_graphics", { paths, targetDir, format, quality }),
   cancelExport: () => invoke<void>("cancel_export"),
 
   decodeSprite: (path: string) => invoke<SpriteImage>("decode_sprite", { path }),

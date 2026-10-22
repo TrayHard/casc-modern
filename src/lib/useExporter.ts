@@ -3,6 +3,7 @@ import { message } from "antd";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { api, errMsg, ExportProgress, ExportSummary, Settings } from "./api";
+import type { ImageExportFormat } from "./imageExport";
 
 interface UseExporterResult {
   running: boolean;
@@ -15,8 +16,11 @@ interface UseExporterResult {
   exportPath: (virtualPath: string, keepFullPath?: boolean) => Promise<void>;
   /** Export an explicit list of virtual paths (multi-select). */
   exportPaths: (paths: string[], keepFullPath?: boolean) => Promise<void>;
-  /** Convert every `.sprite` under `virtualPath` to PNG and export. */
-  exportPathAsPng: (virtualPath: string) => Promise<void>;
+  imageExportPaths: string[] | null;
+  openImageExport: (virtualPath: string) => Promise<void>;
+  openImageExportPaths: (paths: string[]) => Promise<void>;
+  dismissImageExport: () => void;
+  confirmImageExport: (format: ImageExportFormat, quality: number) => Promise<void>;
   cancel: () => Promise<void>;
   /** Hide the "done" modal. */
   dismissDone: () => void;
@@ -32,6 +36,7 @@ export function useExporter(
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [done, setDone] = useState<ExportSummary | null>(null);
+  const [imageExportPaths, setImageExportPaths] = useState<string[] | null>(null);
 
   useEffect(() => {
     const unlisteners: Promise<UnlistenFn>[] = [];
@@ -93,8 +98,26 @@ export function useExporter(
     );
   }
 
-  function exportPathAsPng(virtualPath: string) {
-    return runExport(virtualPath, (t) => api.exportPathAsPng(virtualPath, t));
+  async function openImageExport(virtualPath: string) {
+    setImageExportPaths([virtualPath]);
+  }
+
+  async function openImageExportPaths(paths: string[]) {
+    if (paths.length === 0) return;
+    setImageExportPaths([...paths]);
+  }
+
+  function dismissImageExport() {
+    setImageExportPaths(null);
+  }
+
+  async function confirmImageExport(format: ImageExportFormat, quality: number) {
+    const paths = imageExportPaths;
+    if (paths === null) return;
+    setImageExportPaths(null);
+    await runExport(paths.join(","), (target) =>
+      api.exportGraphics(paths, target, format, quality)
+    );
   }
 
   async function cancel() {
@@ -115,7 +138,11 @@ export function useExporter(
     done,
     exportPath,
     exportPaths,
-    exportPathAsPng,
+    imageExportPaths,
+    openImageExport,
+    openImageExportPaths,
+    dismissImageExport,
+    confirmImageExport,
     cancel,
     dismissDone,
   };

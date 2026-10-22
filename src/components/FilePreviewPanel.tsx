@@ -14,6 +14,7 @@ import { ArrowLeftOutlined, ExportOutlined } from "@ant-design/icons";
 import { api, FileMeta, humanSize, parentPath } from "../lib/api";
 import { viewersFor } from "./viewers/registry";
 import type { Selection } from "../lib/selection";
+import { isConvertibleImage } from "../lib/imageExport";
 
 const { Text } = Typography;
 
@@ -21,9 +22,10 @@ interface Props {
   selectedPath: string;
   onNavigate: (s: Selection) => void;
   onExport: (path: string) => void;
+  onExportImage: (path: string) => void;
 }
 
-export function FilePreviewPanel({ selectedPath, onNavigate, onExport }: Props) {
+export function FilePreviewPanel({ selectedPath, onNavigate, onExport, onExportImage }: Props) {
   const [meta, setMeta] = useState<FileMeta | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -77,6 +79,15 @@ export function FilePreviewPanel({ selectedPath, onNavigate, onExport }: Props) 
           </Button>
           <div style={{ flex: 1 }} />
           <Space>
+            {isConvertibleImage(selectedPath) && (
+              <Button
+                size="small"
+                icon={<ExportOutlined />}
+                onClick={() => onExportImage(selectedPath)}
+              >
+                Export as image…
+              </Button>
+            )}
             <Button
               size="small"
               icon={<ExportOutlined />}
@@ -127,7 +138,7 @@ export function FilePreviewPanel({ selectedPath, onNavigate, onExport }: Props) 
               items={viewers.map((v) => ({
                 key: v.id,
                 label: v.label,
-                children: <v.Component meta={meta} />,
+                children: <v.Component meta={meta} onExportImage={onExportImage} />,
               }))}
             />
           )}

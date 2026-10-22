@@ -4,12 +4,14 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { message } from "antd";
 import { api, basename, errMsg } from "./api";
 import type { Selection } from "./selection";
+import { isConvertibleImage } from "./imageExport";
 
 export interface ContextActions {
   open: (s: Selection) => void;
   exportPath: (path: string, keepFullPath?: boolean) => Promise<void>;
   exportPaths: (paths: string[], keepFullPath?: boolean) => Promise<void>;
-  exportPathAsPng: (path: string) => Promise<void>;
+  openImageExport: (path: string) => Promise<void>;
+  openImageExportPaths: (paths: string[]) => Promise<void>;
   toggleBookmark: (target: Selection) => void;
 }
 
@@ -17,11 +19,6 @@ interface BuildArgs {
   target: Selection;
   /** Whether the target is currently in the user's bookmarks. */
   isBookmarked: boolean;
-}
-
-function isPngExportable(path: string): boolean {
-  const p = path.toLowerCase();
-  return p.endsWith(".sprite") || p.endsWith(".dc6");
 }
 
 /// Build the antd Menu items list for either a file or a directory target.
@@ -42,8 +39,8 @@ export function buildContextMenu({ target, isBookmarked }: BuildArgs): ItemType[
       { key: "export", label: "Export file…" },
       { key: "export-fullpath", label: "Export file with full path…" },
     ];
-    if (isPngExportable(target.path)) {
-      items.push({ key: "export-png", label: "Export as PNG…" });
+    if (isConvertibleImage(target.path)) {
+      items.push({ key: "export-image", label: "Export as image…" });
     }
     items.push(
       { type: "divider" },
@@ -59,7 +56,7 @@ export function buildContextMenu({ target, isBookmarked }: BuildArgs): ItemType[
     { type: "divider" },
     { key: "export", label: "Export folder…" },
     { key: "export-fullpath", label: "Export folder with full path…" },
-    { key: "export-png", label: "Export graphics here as PNG…" },
+    { key: "export-image", label: "Export graphics here…" },
     { type: "divider" },
     { key: "copy-path", label: target.path ? "Copy path" : "Copy '<root>'" },
     { key: "copy-name", label: "Copy name" },
@@ -72,6 +69,7 @@ export function buildMultiContextMenu(count: number): ItemType[] {
   return [
     { key: "export", label: `Export ${count} selected…` },
     { key: "export-fullpath", label: `Export ${count} with full path…` },
+    { key: "export-image", label: `Export selected graphics…` },
     { type: "divider" },
     { key: "copy-paths", label: "Copy paths" },
   ];
@@ -88,6 +86,9 @@ export async function handleMultiContextAction(
       return;
     case "export-fullpath":
       await actions.exportPaths(paths, true);
+      return;
+    case "export-image":
+      await actions.openImageExportPaths(paths);
       return;
     case "copy-paths":
       try {
@@ -118,8 +119,8 @@ export async function handleContextAction(
     case "export-fullpath":
       await actions.exportPath(target.path, true);
       return;
-    case "export-png":
-      await actions.exportPathAsPng(target.path);
+    case "export-image":
+      await actions.openImageExport(target.path);
       return;
     case "open-external":
       if (target.kind !== "file") return;

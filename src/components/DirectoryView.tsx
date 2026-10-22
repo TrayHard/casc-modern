@@ -19,6 +19,7 @@ interface Props {
   onExport: (path: string) => void;
   /** Export an explicit set of selected items (multi-select). */
   onExportPaths?: (paths: string[]) => void;
+  onExportImagePaths?: (paths: string[]) => void;
   onContextMenu?: (
     x: number,
     y: number,
@@ -45,6 +46,7 @@ export function DirectoryView({
   onNavigate,
   onExport,
   onExportPaths,
+  onExportImagePaths,
   onContextMenu,
 }: Props) {
   const [entries, setEntries] = useState<IndexEntry[]>([]);
@@ -328,6 +330,15 @@ export function DirectoryView({
         </Text>
         <div style={{ flex: 1 }} />
         <Space>
+          {selectedCount > 0 && onExportImagePaths && (
+            <Button
+              size="small"
+              icon={<ExportOutlined />}
+              onClick={() => onExportImagePaths(selectedPathsInOrder())}
+            >
+              Export selected graphics…
+            </Button>
+          )}
           {selectedCount > 0 && onExportPaths && (
             <Button
               size="small"

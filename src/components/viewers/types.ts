@@ -3,6 +3,7 @@ import type { FileMeta } from "../../lib/api";
 
 export interface ViewerProps {
   meta: FileMeta;
+  onExportImage?: (path: string) => void;
 }
 
 export interface Viewer {

@@ -2,13 +2,16 @@
 //!
 //! Two surfaces:
 //! - `decode_sprite` — render the atlas to PNG (base64) for live inline preview.
-//! - `export_path_as_png` — bulk-convert .sprite files under a virtual path,
+//! - `export_graphics` — bulk-convert graphics under selected virtual paths,
 //!   reusing the export progress event pipeline.
 
 use crate::{ApiError, ApiResult, AppState};
 use base64::Engine;
+use casc_core::formats::encode::{encode_rgba, ImageFormat};
 use casc_core::formats::{dc6, spa1};
+use casc_core::FileIndex;
 use serde::Serialize;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager};
@@ -77,60 +80,32 @@ fn read_indexed(state: &AppState, path: &str) -> ApiResult<Vec<u8>> {
     Ok(opened.storage.read(&storage_path)?)
 }
 
-/// Export every `.sprite` under `virtual_path` (a file or directory) converted
-/// to PNG. Non-sprite files are skipped. Same progress event pipeline as a
-/// normal export.
+/// Export supported graphics under selected virtual paths in the selected format.
+/// Other files are skipped. Uses the normal export progress event pipeline.
 #[tauri::command]
-pub async fn export_path_as_png(
+pub async fn export_graphics(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
     export_state: tauri::State<'_, ExportState>,
-    virtual_path: String,
+    paths: Vec<String>,
     target_dir: String,
+    format: String,
+    quality: u8,
 ) -> ApiResult<ExportSummary> {
-    let tasks: Vec<(String, String)> = {
+    let format = format
+        .parse::<ImageFormat>()
+        .map_err(|message| ApiError { message })?;
+    if quality > 100 {
+        return Err(ApiError {
+            message: "quality must be between 0 and 100".into(),
+        });
+    }
+    let tasks = {
         let lock = state.opened.lock().expect("opened storage lock poisoned");
         let opened = lock.as_ref().ok_or_else(|| ApiError {
             message: "no storage open".into(),
         })?;
-        let mut out = Vec::new();
-        if let Some((storage_path, _)) = opened.index.resolve(&virtual_path) {
-            if is_sprite(&virtual_path) || is_dc6(&virtual_path) {
-                let base = virtual_path
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or(&virtual_path)
-                    .to_string();
-                out.push((storage_path, replace_ext(&base, "png")));
-            }
-        } else {
-            let prefix = if virtual_path.is_empty() {
-                String::new()
-            } else {
-                format!("{}/", virtual_path.trim_end_matches('/'))
-            };
-            for (norm_path, storage_path, _size, _avail) in opened.index.iter_files() {
-                if !is_sprite(norm_path) && !is_dc6(norm_path) {
-                    continue;
-                }
-                let rel = if prefix.is_empty() {
-                    norm_path.to_string()
-                } else if let Some(stripped) = norm_path.strip_prefix(&prefix) {
-                    stripped.to_string()
-                } else {
-                    continue;
-                };
-                out.push((storage_path.to_string(), replace_ext(&rel, "png")));
-            }
-            if out.is_empty() {
-                return Err(ApiError {
-                    message: format!(
-                        "{virtual_path}: no exportable graphics (.sprite/.dc6) inside"
-                    ),
-                });
-            }
-        }
-        out
+        collect_graphic_tasks(&opened.index, &paths, format)?
     };
     let total = tasks.len() as u32;
 
@@ -163,7 +138,7 @@ pub async fn export_path_as_png(
             // normal failure. The storage lock is released inside
             // `decode_and_write` before decoding, so a panic can't poison it.
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                decode_and_write(&app_blocking, storage_path, &out_path)
+                decode_and_write(&app_blocking, storage_path, &out_path, format, quality)
             }));
             match outcome {
                 Ok(Ok((n_files, n_bytes))) => {
@@ -203,6 +178,66 @@ pub async fn export_path_as_png(
 
     let _ = app.emit("export_done", &result);
     Ok(result)
+}
+
+fn collect_graphic_tasks(
+    index: &FileIndex,
+    paths: &[String],
+    format: ImageFormat,
+) -> ApiResult<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    for virtual_path in paths {
+        if let Some((storage_path, _)) = index.resolve(virtual_path) {
+            if is_exportable_graphic(virtual_path) {
+                let base = virtual_path.rsplit('/').next().unwrap_or(virtual_path);
+                out.push((storage_path, replace_ext(base, format.extension())));
+            }
+            continue;
+        }
+
+        let trimmed = virtual_path.trim_end_matches('/');
+        let prefix = if trimmed.is_empty() {
+            String::new()
+        } else {
+            format!("{trimmed}/")
+        };
+        let dir_name = trimmed.rsplit('/').next().unwrap_or(trimmed);
+        for (norm_path, storage_path, _size, _avail) in index.iter_files() {
+            if !is_exportable_graphic(norm_path) {
+                continue;
+            }
+            let rel = if prefix.is_empty() {
+                norm_path
+            } else if let Some(stripped) = norm_path.strip_prefix(&prefix) {
+                stripped
+            } else {
+                continue;
+            };
+            let rel = if paths.len() > 1 && !dir_name.is_empty() {
+                format!("{dir_name}/{rel}")
+            } else {
+                rel.to_string()
+            };
+            out.push((
+                storage_path.to_string(),
+                replace_ext(&rel, format.extension()),
+            ));
+        }
+    }
+    if out.is_empty() {
+        return Err(ApiError {
+            message: "no exportable graphics in selection".into(),
+        });
+    }
+    let mut output_names = HashSet::new();
+    for (_, rel) in &out {
+        if !output_names.insert(rel.to_ascii_lowercase()) {
+            return Err(ApiError {
+                message: format!("multiple source images would overwrite {rel}"),
+            });
+        }
+    }
+    Ok(out)
 }
 
 /// Refuse to inline-preview images above this many pixels (PNG-encode + base64
@@ -472,6 +507,13 @@ fn is_dc6(path: &str) -> bool {
     path.to_ascii_lowercase().ends_with(".dc6")
 }
 
+fn is_exportable_graphic(path: &str) -> bool {
+    let path = path.to_ascii_lowercase();
+    [".sprite", ".dc6", ".png", ".jpg", ".jpeg", ".bmp", ".tga"]
+        .iter()
+        .any(|ext| path.ends_with(ext))
+}
+
 fn replace_ext(name: &str, new_ext: &str) -> String {
     match name.rfind('.') {
         Some(i) => format!("{}.{new_ext}", &name[..i]),
@@ -479,12 +521,14 @@ fn replace_ext(name: &str, new_ext: &str) -> String {
     }
 }
 
-/// Decode `storage_path` and write PNGs at `out_path`. Multi-frame sprites
-/// split into `name_0001.png` … `name_NNNN.png`. Returns `(files, bytes)`.
+/// Decode `storage_path` and write images at `out_path`. Multi-frame graphics
+/// split into `name_0001.ext` … `name_NNNN.ext`. Returns `(files, bytes)`.
 fn decode_and_write(
     app: &AppHandle,
     storage_path: &str,
     out_path: &Path,
+    format: ImageFormat,
+    quality: u8,
 ) -> Result<(u32, u64), String> {
     // Read the raw bytes under the lock, then release it *before* decoding.
     // Decoding an untrusted sprite can be slow or (despite our best efforts)
@@ -516,37 +560,55 @@ fn decode_and_write(
         }
         if d.frames.len() <= 1 {
             let f = &d.frames[0];
-            let png = rgba_to_png(f.width, f.height, dc6::to_rgba(f, &pal))?;
-            std::fs::write(out_path, &png).map_err(|e| e.to_string())?;
-            return Ok((1, png.len() as u64));
+            let image = encode_rgba(f.width, f.height, &dc6::to_rgba(f, &pal), format, quality)
+                .map_err(|e| e.to_string())?;
+            std::fs::write(out_path, &image).map_err(|e| e.to_string())?;
+            return Ok((1, image.len() as u64));
         }
         let total = d.frames.len() as u32;
         let mut written_bytes: u64 = 0;
         let mut files: u32 = 0;
         for (i, f) in d.frames.iter().enumerate() {
-            let png = rgba_to_png(f.width, f.height, dc6::to_rgba(f, &pal))?;
+            let image = encode_rgba(f.width, f.height, &dc6::to_rgba(f, &pal), format, quality)
+                .map_err(|e| e.to_string())?;
             let target = with_frame_suffix(out_path, i as u32, total);
-            std::fs::write(&target, &png).map_err(|e| e.to_string())?;
-            written_bytes += png.len() as u64;
+            std::fs::write(&target, &image).map_err(|e| e.to_string())?;
+            written_bytes += image.len() as u64;
             files += 1;
         }
         return Ok((files, written_bytes));
     }
 
+    if !is_sprite(storage_path) {
+        let (rgba, width, height) = decode_to_rgba(storage_path, &bytes)?;
+        let image =
+            encode_rgba(width, height, &rgba, format, quality).map_err(|e| e.to_string())?;
+        std::fs::write(out_path, &image).map_err(|e| e.to_string())?;
+        return Ok((1, image.len() as u64));
+    }
+
     let sprite = spa1::decode(&bytes).map_err(|e| e.to_string())?;
     if sprite.frame_count <= 1 {
-        let png = sprite.to_png().map_err(|e| e.to_string())?;
-        std::fs::write(out_path, &png).map_err(|e| e.to_string())?;
-        return Ok((1, png.len() as u64));
+        let image = encode_rgba(sprite.width, sprite.height, &sprite.pixels, format, quality)
+            .map_err(|e| e.to_string())?;
+        std::fs::write(out_path, &image).map_err(|e| e.to_string())?;
+        return Ok((1, image.len() as u64));
     }
 
     let mut written_bytes: u64 = 0;
     let mut files: u32 = 0;
     for i in 0..sprite.frame_count {
-        let png = sprite.frame_to_png(i).map_err(|e| e.to_string())?;
+        let image = encode_rgba(
+            sprite.frame_width(),
+            sprite.frame_height(),
+            &sprite.frame_rgba(i).map_err(|e| e.to_string())?,
+            format,
+            quality,
+        )
+        .map_err(|e| e.to_string())?;
         let target = with_frame_suffix(out_path, i, sprite.frame_count);
-        std::fs::write(&target, &png).map_err(|e| e.to_string())?;
-        written_bytes += png.len() as u64;
+        std::fs::write(&target, &image).map_err(|e| e.to_string())?;
+        written_bytes += image.len() as u64;
         files += 1;
     }
     Ok((files, written_bytes))
@@ -568,5 +630,49 @@ fn with_frame_suffix(out_path: &Path, frame: u32, total: u32) -> PathBuf {
     match out_path.parent() {
         Some(p) => p.join(name),
         None => PathBuf::from(name),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_index() -> FileIndex {
+        let mut index = FileIndex::default();
+        for path in [
+            "data:data\\hd\\spells\\amazon\\icon.sprite",
+            "data:data\\hd\\spells\\assassin\\icon.sprite",
+            "data:data\\hd\\spells\\notes.txt",
+        ] {
+            index.add(path.to_string(), 4, true, 0);
+        }
+        index
+    }
+
+    #[test]
+    fn selected_folders_keep_their_names_and_skip_other_files() {
+        let paths = [
+            "data/data/hd/spells/amazon".to_string(),
+            "data/data/hd/spells/assassin".to_string(),
+            "data/data/hd/spells/notes.txt".to_string(),
+        ];
+        let mut output: Vec<String> =
+            collect_graphic_tasks(&sample_index(), &paths, ImageFormat::Webp)
+                .unwrap()
+                .into_iter()
+                .map(|(_, rel)| rel)
+                .collect();
+        output.sort();
+        assert_eq!(output, ["amazon/icon.webp", "assassin/icon.webp"]);
+    }
+
+    #[test]
+    fn selected_files_with_the_same_output_name_fail_before_writing() {
+        let paths = [
+            "data/data/hd/spells/amazon/icon.sprite".to_string(),
+            "data/data/hd/spells/assassin/icon.sprite".to_string(),
+        ];
+        let error = collect_graphic_tasks(&sample_index(), &paths, ImageFormat::Png).unwrap_err();
+        assert!(error.message.contains("overwrite icon.png"));
     }
 }

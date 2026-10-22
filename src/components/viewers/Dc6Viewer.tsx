@@ -18,7 +18,6 @@ import {
   message,
 } from "antd";
 import { ExportOutlined } from "@ant-design/icons";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { api, errMsg, Dc6Info } from "../../lib/api";
 import type { ViewerProps } from "./types";
 
@@ -199,14 +198,13 @@ const Dc6Thumb = memo(function Dc6Thumb({
 /// Viewer for classic Diablo II `.dc6` graphics (indexed; palette applied in
 /// Rust). Steps through frames and lets the user switch palettes. Frames load
 /// lazily so big fonts open instantly.
-export function Dc6Viewer({ meta }: ViewerProps) {
+export function Dc6Viewer({ meta, onExportImage }: ViewerProps) {
   const [info, setInfo] = useState<Dc6Info | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
   const [frame, setFrame] = useState(0);
   const [palette, setPalette] = useState(PALETTES[0].path);
-  const [exporting, setExporting] = useState(false);
   const [mainUrl, setMainUrl] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -268,20 +266,6 @@ export function Dc6Viewer({ meta }: ViewerProps) {
     return s > 0 ? Math.min(1, s) : 1;
   }, [cur, box]);
 
-  async function exportPng() {
-    const dir = await openDialog({ directory: true, multiple: false });
-    if (typeof dir !== "string") return;
-    setExporting(true);
-    try {
-      const r = await api.exportPathAsPng(meta.path, dir);
-      message.success(`Exported ${r.files_written} PNG(s)`);
-    } catch (e) {
-      message.error(`Export failed: ${errMsg(e)}`);
-    } finally {
-      setExporting(false);
-    }
-  }
-
   if (err) {
     return <Result status="error" title="Cannot decode DC6" subTitle={err} />;
   }
@@ -333,8 +317,8 @@ export function Dc6Viewer({ meta }: ViewerProps) {
         />
         <Button onClick={() => setScale(fitScale)}>Fit</Button>
         <Button onClick={() => setScale(1)}>1:1</Button>
-        <Button icon={<ExportOutlined />} loading={exporting} onClick={exportPng}>
-          Export PNG…
+        <Button icon={<ExportOutlined />} onClick={() => onExportImage?.(meta.path)}>
+          Export as image…
         </Button>
       </Space>
 

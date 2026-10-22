@@ -31,6 +31,7 @@ import { FilePreviewPanel } from "./components/FilePreviewPanel";
 import { SearchDrawer } from "./components/SearchDrawer";
 import { ContextMenu } from "./components/ContextMenu";
 import { ExportProgressDialog } from "./components/ExportProgressDialog";
+import { ImageExportDialog } from "./components/ImageExportDialog";
 import { BookmarkBar } from "./components/BookmarkBar";
 import { UpdateButton } from "./components/UpdateButton";
 import { SettingsDrawer } from "./components/SettingsDrawer";
@@ -201,7 +202,8 @@ export default function App() {
         open: setSelection,
         exportPath: exporter.exportPath,
         exportPaths: exporter.exportPaths,
-        exportPathAsPng: exporter.exportPathAsPng,
+        openImageExport: exporter.openImageExport,
+        openImageExportPaths: exporter.openImageExportPaths,
         toggleBookmark,
       };
       if (paths.length > 1) {
@@ -214,7 +216,8 @@ export default function App() {
       ctxMenu,
       exporter.exportPath,
       exporter.exportPaths,
-      exporter.exportPathAsPng,
+      exporter.openImageExport,
+      exporter.openImageExportPaths,
       toggleBookmark,
     ]
   );
@@ -228,6 +231,7 @@ export default function App() {
           onNavigate={setSelection}
           onExport={exporter.exportPath}
           onExportPaths={exporter.exportPaths}
+          onExportImagePaths={exporter.openImageExportPaths}
           onContextMenu={onContextMenu}
         />
       );
@@ -239,6 +243,7 @@ export default function App() {
           onNavigate={setSelection}
           onExport={exporter.exportPath}
           onExportPaths={exporter.exportPaths}
+          onExportImagePaths={exporter.openImageExportPaths}
           onContextMenu={onContextMenu}
         />
       );
@@ -248,9 +253,10 @@ export default function App() {
         selectedPath={selection.path}
         onNavigate={setSelection}
         onExport={exporter.exportPath}
+        onExportImage={exporter.openImageExport}
       />
     );
-  }, [opened, selection, exporter.exportPath, exporter.exportPaths, onContextMenu]);
+  }, [opened, selection, exporter.exportPath, exporter.exportPaths, exporter.openImageExport, exporter.openImageExportPaths, onContextMenu]);
 
   return (
     <PrefsProvider
@@ -394,6 +400,11 @@ export default function App() {
         done={exporter.done}
         onCancel={exporter.cancel}
         onDismiss={exporter.dismissDone}
+      />
+      <ImageExportDialog
+        paths={exporter.imageExportPaths}
+        onCancel={exporter.dismissImageExport}
+        onExport={exporter.confirmImageExport}
       />
       <SettingsDrawer
         open={settingsOpen}

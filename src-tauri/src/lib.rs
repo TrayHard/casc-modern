@@ -369,7 +369,7 @@ pub fn run() {
             sprites::dc6_frame,
             sprites::decode_image,
             sprites::thumbnail,
-            sprites::export_path_as_png,
+            sprites::export_graphics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
