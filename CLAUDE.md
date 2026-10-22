@@ -28,6 +28,16 @@ conflated**:
 
 A release *contains* commits, but a plain commit never escalates into a release.
 
+## Work for other projects
+
+Keep this repository's public files specific to CASC Modern. Save notes, data,
+exports, scripts, and selection presets for any other project or service under
+`local-only/other-projects/<project-name>/`. The entire `local-only/` directory
+is ignored by Git. Do not add its contents to commits or move them into public
+documentation or source fixtures. Use `--tags-file` when a CLI command needs a
+project-specific preset from that directory. Keep CASC Modern's release keys
+and build helpers in `nogit/`.
+
 ## What this is
 
 A Tauri 2 (Rust) + React 18 / Vite (TypeScript) desktop app — a CASC storage
@@ -48,9 +58,53 @@ npm run tdev                 # tauri dev — actual desktop app, hot reload
 npm run tcheck               # tsc --noEmit — TypeScript type gate
 npm run build                # tsc + vite build (frontend bundle only)
 npm run tbuild               # tauri build → portable exe + MSI (unsigned)
-cargo test -p casc-core      # the Rust test suite (FileIndex + SpA1 decoder)
-cargo run -p casc-cli --quiet -- <subcommand>   # `casc info|list|extract|cat`
+cargo test -p casc-core -p casc-cli   # Rust tests (FileIndex, decoders, CLI path matching)
+cargo run -p casc-cli --quiet -- <subcommand>   # `casc info|list|extract|extract-all|cat`
+cargo install --path crates/casc-cli            # put `casc` on PATH
 ```
+
+### Pulling game files from the terminal (`casc` CLI)
+
+Use the CLI instead of the GUI when you need game files. Every command takes
+the storage root first (the D2R install folder, e.g.
+`"D:/Games/Diablo II Resurrected"`).
+
+```bash
+casc list   STORAGE --filter excel/skills          # find paths
+casc cat    STORAGE data/data/global/excel/skills.txt
+casc extract STORAGE data/data/global/excel/skills.txt -o skills.txt
+casc extract-all STORAGE -o out --tag skills --tag strings
+casc list   STORAGE -m --tag skills                # mod copies over CASC
+casc extract-all STORAGE -m --filter hd/global/ui/spells --convert webp --flat -o icons
+```
+
+- Paths work in both forms: the GUI path `data/data/global/x` and the CascLib
+  name `data:data\global\x` that `list` prints. Note the product root: it is
+  `data/data/global/...`, not `data/global/...`.
+- `--tag NAME` selects a named set of folders and files from
+  `casc-tags.json` in the current directory (`--tags-file` overrides). The file
+  is `{"tag": ["folder or file path", ...]}`; a folder covers everything under
+  it. Edit it to add or change sets. `list --tag NAME` previews a set; a path
+  that matches nothing prints a warning.
+- `extract-all` keeps the GUI folder structure under `-o` and exits non-zero if
+  nothing matched or any file failed. `--flat` instead writes every file
+  straight into `-o` as its lowercase basename (`skills.txt`) and fails before
+  writing if two files share a basename.
+- `extract-all --convert FORMAT` (`png`, `webp`, `webp-lossless`, `jpeg`,
+  `avif`) writes each `.sprite` as images: one frame gives `name.webp`, more
+  give `name_0.webp` … `name_{N-1}.webp` (0-based frame index; for skill icon
+  sheets it is `IconCel` from skilldesc.txt). It skips `*.lowend.sprite` and
+  legacy `*.dc6`, copies all other files unchanged, and counts a sprite that
+  fails to decode as a failed file. `--flat` checks clashes on the final image
+  names. `--quality N` (0–100, default 90) applies to `webp`, `jpeg` and `avif`.
+- `-m` / `--mod` (on `list`, `cat`, `extract`, `extract-all`) overlays an
+  unpacked mod: files in the mod replace their CASC copies, and mod-only files
+  join the selection. `-m` alone takes the only mod in `STORAGE/mods`,
+  `-m=NAME` takes `STORAGE/mods/NAME/NAME.mpq`, and `-m=PATH` takes a mod or
+  `*.mpq` folder anywhere. The value needs `=`, so a bare `-m` never eats the
+  next argument. A mod mirrors the `data:` root: `<mpq>/data/global/x`
+  overrides `data/data/global/x`. `list -m` adds a `mod`/`base` column (JSON:
+  `"source"`).
 
 `tcheck` is the only frontend gate — there is no linter. For UI changes,
 **verify in the actual running app** (`npm run tdev`); `tcheck` and a passing

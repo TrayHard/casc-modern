@@ -16,8 +16,7 @@ interface, dark theme, and additional features. Uses
 [CascLib](https://github.com/ladislav-zezula/CascLib) as the underlying
 engine, wrapped in a Tauri 2 frontend.
 
-A quick but important note: the project was done mostly personally for me in Claude Code with zero knowledge in Rust (only using Rust skills for Claude), but with a wish to have the same instrument as CascView, but with a dark theme (that was the main reason :D), a comfortable interface and a bookmarks tab.
-Hopefully it would be useful for you as it was for me. If you would like to improve the project - you are welcome to create PRs or issues, just don't be too harsh please.
+Contributions and issue reports are welcome.
 
 ## Screenshots
 
@@ -31,11 +30,11 @@ Hopefully it would be useful for you as it was for me. If you would like to impr
 
 CASC Modern reads any local CASC storage that CascLib can open. The current
 build adds a lot tailored to D2R: decoders for `.sprite` (SpA1) and classic
-`.dc6` graphics (with palette selection and per-frame PNG export), an image
+`.dc6` graphics (with palette selection and per-frame image export), an image
 viewer for `.tga`/`.bmp`/`.png`/`.jpg`, a sortable table viewer for the
 Excel-style `.txt` data files, an inline player for `.flac` audio and `.webm`
 video, syntax highlighting for the JSON and text formats used by D2R Toolbox
-(`.model`, `.skeleton`, `.animations`, etc.), batch export to PNG, and
+(`.model`, `.skeleton`, `.animations`, etc.), batch image export, and
 full-text search over the indexed content.
 
 ## Features
@@ -47,7 +46,7 @@ full-text search over the indexed content.
   - `.sprite` (SpA1) — decoded to RGBA8, with zoom, a frame grid, and a
     High/Low quality toggle for files that ship a `.lowend` variant.
   - `.dc6` — classic indexed graphics, with a palette picker, frame
-    stepping, and "Export as PNG".
+    stepping, and image export with format and quality controls.
   - `.tga`, `.bmp`, `.png`, `.jpg` — image viewer with zoom and fit.
   - Excel-style `.txt`/`.tsv` data — a sortable, filterable table with
     resizable, content-auto-sized columns.
@@ -115,7 +114,51 @@ The last opened path is remembered and reopened automatically on the next
 launch.
 
 A `casc` CLI is also built (`crates/casc-cli`) with `info`, `list`,
-`extract`, `extract-all`, and `cat` subcommands for scripting.
+`extract`, `extract-all`, and `cat` subcommands for scripting. Install it with
+`cargo install --path crates/casc-cli`.
+
+```bash
+casc extract "D:/Games/Diablo II Resurrected" data/data/global/excel/skills.txt
+casc extract-all "D:/Games/Diablo II Resurrected" -o out --filter excel/skills
+```
+
+`--tag` picks a named set of folders and files from `casc-tags.json` in the
+current directory (override with `--tags-file`). The file maps each tag to a
+list of paths, and a folder path covers everything under it:
+
+```json
+{ "strings": ["data/data/local/lng/strings"] }
+```
+
+Create this file for your own selection presets. The repository ignores it so
+local project paths and workflows stay out of public commits.
+
+`-m` reads a mod on top of the game: files in the mod win over their CASC
+copies, and files only the mod has are included. `-m` alone uses the only mod
+in `mods/`; `-m=NAME` and `-m=PATH` pick one (the value needs `=`).
+`extract-all --flat` writes every file straight into `-o` under its lowercase
+basename and refuses to overwrite on name clashes. For example:
+
+```bash
+casc extract-all "D:/Games/Diablo II Resurrected" --tag strings --flat -o out
+```
+
+`extract-all --convert FORMAT` (`png`, `webp`, `webp-lossless`, `jpeg` or
+`avif`) writes every `.sprite` as images: one frame gives `name.webp`, more
+give `name_0.webp`, `name_1.webp`, … by 0-based frame index (for skill icons,
+the `IconCel` in `skilldesc.txt`). It skips `*.lowend.sprite` and legacy
+`*.dc6` files and copies everything else unchanged. `--quality N` (0–100,
+default 90) sets the quality of the lossy formats:
+
+```bash
+casc extract-all "D:/Games/Diablo II Resurrected" -m --filter hd/global/ui/spells --convert webp --flat -o icons
+```
+
+In the desktop app, use **Export as image…** on a `.sprite`, `.dc6`, PNG,
+JPEG, BMP, or TGA file, **Export graphics here…** on a folder, or **Export
+selected graphics…** after selecting multiple items. Choose PNG, WebP,
+lossless WebP, JPEG, or AVIF. WebP, JPEG, and AVIF expose a 0–100% quality
+control. JPEG replaces transparency with black.
 
 ## Build from source
 
