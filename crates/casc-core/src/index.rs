@@ -215,7 +215,9 @@ impl FileIndex {
 }
 
 /// `data:data\global\foo.txt` → `data/data/global/foo.txt`.
-fn normalize(path: &str) -> String {
+/// CascLib name (`data:data\global\x`) -> virtual path (`data/data/global/x`).
+/// Also safe to write to disk: Windows rejects `:` in path segments.
+pub fn normalize(path: &str) -> String {
     path.replace([':', '\\'], "/")
 }
 

@@ -13,3 +13,4 @@ serde = { workspace = true }
 tracing = { workspace = true }
 bytes = { workspace = true }
 image = { workspace = true }
+webp = { workspace = true }

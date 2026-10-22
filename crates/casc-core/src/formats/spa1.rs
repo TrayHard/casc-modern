@@ -28,8 +28,8 @@
 //! atlas width equals `frame_count * frame_width`. Each frame can be
 //! cropped from the decoded RGBA buffer in O(1) per row.
 
+use super::encode::{encode_rgba, ImageFormat};
 use crate::CascError;
-use std::io::Cursor;
 
 const MAGIC: &[u8; 4] = b"SpA1";
 const HEADER_SIZE: usize = 0x28;
@@ -62,11 +62,24 @@ impl SpA1 {
 
     /// Encode the full atlas as PNG. Cheapest path for "just show me the image".
     pub fn to_png(&self) -> Result<Vec<u8>, CascError> {
-        encode_png(&self.pixels, self.width, self.height)
+        encode_rgba(self.width, self.height, &self.pixels, ImageFormat::Png, 0)
     }
 
     /// Encode a single frame as PNG. Frame indices are 0-based.
     pub fn frame_to_png(&self, frame: u32) -> Result<Vec<u8>, CascError> {
+        let rgba = self.frame_rgba(frame)?;
+        encode_rgba(
+            self.frame_width(),
+            self.frame_height(),
+            &rgba,
+            ImageFormat::Png,
+            0,
+        )
+    }
+
+    /// Crop a single frame out of the atlas as row-major RGBA8 of
+    /// `frame_width() * frame_height()` pixels. Frame indices are 0-based.
+    pub fn frame_rgba(&self, frame: u32) -> Result<Vec<u8>, CascError> {
         let fw = self.frame_width();
         let fh = self.frame_height();
         if frame >= self.frame_count {
@@ -87,7 +100,7 @@ impl SpA1 {
                 [y * row_stride_src + x_offset..y * row_stride_src + x_offset + row_stride_dst];
             out[y * row_stride_dst..(y + 1) * row_stride_dst].copy_from_slice(src);
         }
-        encode_png(&out, fw, fh)
+        Ok(out)
     }
 }
 
@@ -98,7 +111,8 @@ pub fn decode(bytes: &[u8]) -> Result<SpA1, CascError> {
             code: bytes.len() as u32,
         });
     }
-    if &bytes[0..4] != MAGIC {
+    // Some mod tools write "SPa1"; the game loads those sprites too.
+    if !bytes[0..4].eq_ignore_ascii_case(MAGIC) {
         return Err(CascError::Backend {
             op: "spa1: bad magic (not SpA1)",
             code: 0,
@@ -113,7 +127,8 @@ pub fn decode(bytes: &[u8]) -> Result<SpA1, CascError> {
     let _data_size = u32_le(&bytes[0x20..0x24]) as usize;
     let bpp = u32_le(&bytes[0x24..0x28]);
 
-    if bpp != 4 {
+    // Mod tools leave bpp (and data_size) at 0 but still write RGBA8 pixels.
+    if bpp != 4 && bpp != 0 {
         return Err(CascError::Backend {
             op: "spa1: unsupported bytes-per-pixel (only RGBA8 supported)",
             code: bpp,
@@ -144,27 +159,6 @@ pub fn decode(bytes: &[u8]) -> Result<SpA1, CascError> {
         bpp,
         pixels: data[..expected].to_vec(),
     })
-}
-
-fn encode_png(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, CascError> {
-    if width == 0 || height == 0 {
-        return Err(CascError::Backend {
-            op: "spa1: zero-dimension image",
-            code: 0,
-        });
-    }
-    let img =
-        image::RgbaImage::from_raw(width, height, rgba.to_vec()).ok_or(CascError::Backend {
-            op: "spa1: raw buffer doesn't match dims",
-            code: 0,
-        })?;
-    let mut out = Vec::with_capacity(width as usize * height as usize * 4 / 2);
-    img.write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png)
-        .map_err(|_| CascError::Backend {
-            op: "png encode failed",
-            code: 0,
-        })?;
-    Ok(out)
 }
 
 #[inline]
@@ -200,6 +194,15 @@ mod tests {
     }
 
     #[test]
+    fn accepts_magic_in_any_case() {
+        let mut bytes = synth_spa1(1, 1, 1, &[1, 2, 3, 4]);
+        bytes[..4].copy_from_slice(b"SPa1");
+        assert!(decode(&bytes).is_ok());
+        bytes[..4].copy_from_slice(b"XPa1");
+        assert!(decode(&bytes).is_err());
+    }
+
+    #[test]
     fn decode_single_frame() {
         let px = [
             255, 0, 0, 255, // red
@@ -215,6 +218,16 @@ mod tests {
         assert_eq!(s.pixels, px);
         let png = s.to_png().unwrap();
         assert!(png.starts_with(&[0x89, b'P', b'N', b'G']));
+    }
+
+    #[test]
+    fn zero_bpp_from_mod_tools_reads_as_rgba8() {
+        let px = [1, 2, 3, 4].repeat(4);
+        let mut raw = synth_spa1(2, 2, 1, &px);
+        raw[0x20..0x28].fill(0); // data_size and bpp may be zero in modded files
+        assert_eq!(decode(&raw).unwrap().pixels, px);
+        raw[0x24] = 3;
+        assert!(decode(&raw).is_err());
     }
 
     #[test]
@@ -243,6 +256,8 @@ mod tests {
         let s = decode(&raw).unwrap();
         assert_eq!(s.frame_width(), 2);
         assert_eq!(s.frame_height(), 2);
+        assert_eq!(s.frame_rgba(1).unwrap(), [0, 0, 255, 255].repeat(4));
+        assert!(s.frame_rgba(2).is_err());
         let frame1 = s.frame_to_png(1).unwrap();
         assert!(frame1.starts_with(&[0x89, b'P', b'N', b'G']));
     }

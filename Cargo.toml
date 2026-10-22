@@ -31,7 +31,9 @@ bytes = "1"
 regex = "1"
 globset = "0.4"
 memchr = "2"
-image = { version = "0.25", default-features = false, features = ["png", "tga", "bmp"] }
+image = { version = "0.25", default-features = false, features = ["png", "tga", "bmp", "jpeg", "avif"] }
+# libwebp built from C via `cc`: lossy WebP with alpha, which `image` lacks.
+webp = { version = "0.3", default-features = false }
 base64 = "0.22"
 
 [profile.release]
