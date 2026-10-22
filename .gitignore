@@ -8,6 +8,7 @@ dist/
 .idea/
 src-tauri/Cargo.lock
 nogit/
+local-only/
 dev.bat
 releases/
 .cargo/
@@ -95,6 +96,12 @@ Thumbs.db
 .claude/worktrees/
 .copilot-temp/
 .agents/.cache/
+# Personal agent instructions, skills, and task-specific CLI presets.
+/.claude/agents/
+/.claude/skills/
+/.agents/
+/AGENTS.md
+/casc-tags.json
 # Explicit source fixtures are reviewed data, not personal saves or live keys.
 !**/__tests__/read-test-cert.pem
 !**/__tests__/read-test-key.pem
