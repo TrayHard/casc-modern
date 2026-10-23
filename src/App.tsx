@@ -12,6 +12,7 @@ import {
   FolderOpenOutlined,
   SearchOutlined,
   SettingOutlined,
+  SwapOutlined,
 } from "@ant-design/icons";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
@@ -32,6 +33,7 @@ import { SearchDrawer } from "./components/SearchDrawer";
 import { ContextMenu } from "./components/ContextMenu";
 import { ExportProgressDialog } from "./components/ExportProgressDialog";
 import { ImageExportDialog } from "./components/ImageExportDialog";
+import { CompareView } from "./components/CompareView";
 import { BookmarkBar } from "./components/BookmarkBar";
 import { UpdateButton } from "./components/UpdateButton";
 import { SettingsDrawer } from "./components/SettingsDrawer";
@@ -64,6 +66,7 @@ export default function App() {
   const [selection, setSelection] = useState<Selection | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<CtxMenuState | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
 
@@ -281,6 +284,9 @@ export default function App() {
         >
           Open storage…
         </Button>
+        <Button icon={<SwapOutlined />} onClick={() => setCompareOpen(true)}>
+          Compare…
+        </Button>
         <Button
           icon={<SearchOutlined />}
           onClick={() => setSearchOpen(true)}
@@ -329,57 +335,61 @@ export default function App() {
           </Space>
         )}
       </Header>
-      <Splitter style={{ flex: 1, minHeight: 0 }}>
-        <Splitter.Panel defaultSize={420} min={240} max="70%">
-          <div
-            style={{
-              height: "100%",
-              background: "#141414",
-              borderRight: "1px solid #303030",
-              overflow: "hidden",
-            }}
-          >
-            {opened ? (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  height: "100%",
-                  minHeight: 0,
-                }}
-              >
-                <BookmarkBar
-                  bookmarks={bookmarks}
-                  onNavigate={setSelection}
-                  onUpdate={updateBookmarks}
-                />
+      {compareOpen ? (
+        <CompareView defaultLeft={storagePath} onClose={() => setCompareOpen(false)} />
+      ) : (
+        <Splitter style={{ flex: 1, minHeight: 0 }}>
+          <Splitter.Panel defaultSize={420} min={240} max="70%">
+            <div
+              style={{
+                height: "100%",
+                background: "#141414",
+                borderRight: "1px solid #303030",
+                overflow: "hidden",
+              }}
+            >
+              {opened ? (
                 <div
-                  style={{ flex: 1, minHeight: 0, padding: 8, overflow: "hidden" }}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    height: "100%",
+                    minHeight: 0,
+                  }}
                 >
-                  <StorageTree
-                    generation={treeGen}
-                    selection={selection}
-                    onSelectFile={(p) => setSelection({ kind: "file", path: p })}
-                    onSelectFolder={(p) =>
-                      setSelection({ kind: "dir", path: p })
-                    }
-                    onContextMenu={onContextMenu}
+                  <BookmarkBar
+                    bookmarks={bookmarks}
+                    onNavigate={setSelection}
+                    onUpdate={updateBookmarks}
                   />
+                  <div
+                    style={{ flex: 1, minHeight: 0, padding: 8, overflow: "hidden" }}
+                  >
+                    <StorageTree
+                      generation={treeGen}
+                      selection={selection}
+                      onSelectFile={(p) => setSelection({ kind: "file", path: p })}
+                      onSelectFolder={(p) =>
+                        setSelection({ kind: "dir", path: p })
+                      }
+                      onContextMenu={onContextMenu}
+                    />
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <Text type="secondary" style={{ padding: 12, display: "block" }}>
-                Open a storage to begin.
-              </Text>
-            )}
-          </div>
-        </Splitter.Panel>
-        <Splitter.Panel min={360}>
-          <div style={{ padding: 12, height: "100%", overflow: "hidden" }}>
-            {rightPanel}
-          </div>
-        </Splitter.Panel>
-      </Splitter>
+              ) : (
+                <Text type="secondary" style={{ padding: 12, display: "block" }}>
+                  Open a storage to begin.
+                </Text>
+              )}
+            </div>
+          </Splitter.Panel>
+          <Splitter.Panel min={360}>
+            <div style={{ padding: 12, height: "100%", overflow: "hidden" }}>
+              {rightPanel}
+            </div>
+          </Splitter.Panel>
+        </Splitter>
+      )}
       <SearchDrawer
         open={searchOpen}
         onClose={() => setSearchOpen(false)}

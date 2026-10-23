@@ -1,3 +1,4 @@
+mod compare;
 mod export;
 mod search;
 mod settings;
@@ -342,6 +343,7 @@ pub fn run() {
             Ok(())
         })
         .manage(AppState::default())
+        .manage(compare::ComparisonState::default())
         .manage(search::SearchState::default())
         .manage(export::ExportState::default())
         .invoke_handler(tauri::generate_handler![
@@ -370,6 +372,11 @@ pub fn run() {
             sprites::decode_image,
             sprites::thumbnail,
             sprites::export_graphics,
+            compare::compare_storages,
+            compare::compare_page,
+            compare::compare_preview,
+            compare::close_comparison,
+            compare::cancel_comparison,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

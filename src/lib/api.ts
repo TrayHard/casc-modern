@@ -17,6 +17,30 @@ export type OpenResult = {
   indexed_files: number;
 };
 
+export type DiffStatus = "added" | "removed" | "changed" | "unverified";
+export type DiffEntry = {
+  path: string;
+  status: DiffStatus;
+  left_size: number | null;
+  right_size: number | null;
+};
+export type DiffSummary = Record<DiffStatus, number>;
+export type CompareResult = {
+  left_path: string;
+  right_path: string;
+  left_info: StorageInfo;
+  right_info: StorageInfo;
+  summary: DiffSummary;
+};
+export type DiffPage = { entries: DiffEntry[]; total: number };
+export type ComparePreview = {
+  kind: "text" | "image" | "hex" | "notice";
+  size: number;
+  text: string | null;
+  image_b64: string | null;
+  truncated: boolean;
+};
+
 export type IndexEntry = {
   name: string;
   path: string;
@@ -113,6 +137,14 @@ export type Bookmark = {
 export const api = {
   openStorage: (path: string) => invoke<OpenResult>("open_storage", { path }),
   closeStorage: () => invoke<void>("close_storage"),
+  compareStorages: (leftPath: string, rightPath: string) =>
+    invoke<CompareResult>("compare_storages", { leftPath, rightPath }),
+  comparePage: (query: string, status: DiffStatus | "all", offset: number, limit: number) =>
+    invoke<DiffPage>("compare_page", { query, status, offset, limit }),
+  comparePreview: (side: "left" | "right", path: string) =>
+    invoke<ComparePreview>("compare_preview", { side, path }),
+  closeComparison: () => invoke<void>("close_comparison"),
+  cancelComparison: () => invoke<void>("cancel_comparison"),
   listDir: (path: string) => invoke<IndexEntry[]>("list_dir", { path }),
   readFilePreview: (path: string, maxBytes: number) =>
     invoke<FilePreview>("read_file_preview", { path, maxBytes }),

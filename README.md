@@ -61,6 +61,9 @@ full-text search over the indexed content.
   layout. Sprite and DC6 files can be exported as PNG; animated ones split
   into one PNG per frame.
 - Bookmarks for paths you visit often, persisted across sessions.
+- Compare two CASC storages: added, removed, and changed files, path and
+  status filters, and side-by-side text, image, or hex previews. Progress
+  reporting and cancellation keep long comparisons manageable.
 - Settings: an importable format-icon theme, toggles for thumbnails and for
   hiding other-locale or low-quality (`.lowend`) variants, plus a Performance
   tab for the inline-JSON size limit and table overscan.
@@ -112,6 +115,31 @@ root or any subfolder works.
 
 The last opened path is remembered and reopened automatically on the next
 launch.
+
+### Compare game versions
+
+Click **Compare…**, choose the older storage as **Left version** and the
+updated storage as **Right version**, then click **Compare**. Added and
+removed files are relative to the left version. Filter the differences by
+path or status and select a file to preview both versions.
+
+The comparison reads CASC archives, not the game's executable. Preserve a
+copy of the old storage before updating; keeping only the old `.exe` does
+not preserve its game data. Both inputs must be storage folders that
+**Open storage…** can open. The comparison uses independent handles and
+does not change the storage open in the browser or write to either input.
+
+Content keys identify unchanged files without reading their data. When
+content keys are unavailable, matching encoded keys establish equality;
+otherwise the comparison streams decoded bytes. Compression differences
+alone do not count as changes. Files that cannot be verified appear as
+**Unverified** rather than being assumed unchanged.
+
+Previews show up to 1 MiB of text, the first frame of supported images, or
+512 bytes of hex for other formats. Image previews have file and pixel
+limits. Sizes come from each storage and may reflect compressed data.
+
+### Command-line extraction
 
 A `casc` CLI is also built (`crates/casc-cli`) with `info`, `list`,
 `extract`, `extract-all`, and `cat` subcommands for scripting. Install it with
