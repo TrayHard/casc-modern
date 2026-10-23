@@ -131,9 +131,14 @@ does not change the storage open in the browser or write to either input.
 
 Content keys identify unchanged files without reading their data. When
 content keys are unavailable, matching encoded keys establish equality;
-otherwise the comparison streams decoded bytes. Compression differences
+otherwise the comparison streams decoded bytes. TVFS encoded identities use
+the 9-byte key prefix; static archive locations in the remaining bytes do
+not count as content differences. Matching keys can establish equality
+even when an optional language pack is not installed. Multi-span files
+require comparison of their decoded contents. Compression differences
 alone do not count as changes. Files that cannot be verified appear as
-**Unverified** rather than being assumed unchanged.
+**Unverified** rather than being assumed unchanged. Select an unverified
+file to see its read error or which version lacks the local data.
 
 Previews show up to 1 MiB of text, the first frame of supported images, or
 512 bytes of hex for other formats. Image previews have file and pixel

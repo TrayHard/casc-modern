@@ -23,6 +23,7 @@ export type DiffEntry = {
   status: DiffStatus;
   left_size: number | null;
   right_size: number | null;
+  verification_error: string | null;
 };
 export type DiffSummary = Record<DiffStatus, number>;
 export type CompareResult = {

@@ -468,7 +468,7 @@ export function CompareView({
             <Alert
               type="warning"
               showIcon
-              message="Some files could not be read, so their contents could not be verified."
+              message="Some contents could not be verified. Select an Unverified file to see the reason. Files may be listed in a version without being installed locally."
             />
           )}
           <Space style={{ width: "100%" }}>
@@ -529,6 +529,13 @@ export function CompareView({
             showSizeChanger={false}
             showTotal={(total) => `${total.toLocaleString()} differences`}
           />
+          {selected?.verification_error && (
+            <Alert
+              type="warning"
+              showIcon
+              message={selected.verification_error}
+            />
+          )}
           <div style={{ flex: 1, minHeight: 160, display: "flex", gap: 12 }}>
             <PreviewPane
               label={`Left · build ${result.left_info.build}`}

@@ -74,6 +74,9 @@ pub struct Entry {
     pub content_key: [u8; 16],
     #[serde(skip_serializing)]
     pub encoded_key: [u8; 16],
+    /// Number of encoded spans. The keys above describe only the first span.
+    #[serde(skip_serializing)]
+    pub span_count: u32,
 }
 
 /// Opened CASC storage handle. RAII-closed on drop.
@@ -441,6 +444,7 @@ fn find_data_to_entry(f: &sys::CASC_FIND_DATA) -> Entry {
         locale_flags: f.dwLocaleFlags,
         content_key: f.CKey,
         encoded_key: f.EKey,
+        span_count: f.dwSpanCount,
     }
 }
 

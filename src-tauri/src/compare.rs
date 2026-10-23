@@ -55,6 +55,8 @@ struct CompareFile {
     size: u64,
     content_key: [u8; 16],
     encoded_key: [u8; 16],
+    span_count: u32,
+    local: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -83,6 +85,7 @@ pub struct DiffEntry {
     status: DiffStatus,
     left_size: Option<u64>,
     right_size: Option<u64>,
+    verification_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -150,6 +153,8 @@ fn load_side(path: String, cancel: &AtomicBool) -> ApiResult<Side> {
                 size: entry.size,
                 content_key: entry.content_key,
                 encoded_key: entry.encoded_key,
+                span_count: entry.span_count,
+                local: entry.available,
             },
         );
         true
@@ -176,10 +181,18 @@ fn changed_status(
     b: &CompareFile,
     compare_bytes: impl FnOnce() -> casc_core::Result<bool>,
 ) -> Option<DiffStatus> {
-    if has_key(&a.content_key) && has_key(&b.content_key) {
+    let single_span = a.span_count == 1 && b.span_count == 1;
+    if single_span && has_key(&a.content_key) && has_key(&b.content_key) {
         return (a.content_key != b.content_key).then_some(DiffStatus::Changed);
     }
-    if has_key(&a.encoded_key) && a.encoded_key == b.encoded_key {
+    // TVFS uses the first 9 bytes as the encoded content identity. Static
+    // storages put the archive location in bytes 9..16 (CascRootFile_TVFS.cpp),
+    // so those trailing bytes are not comparable across storage layouts.
+    // A multi-span file needs every span checked, not just the first key.
+    if single_span
+        && a.encoded_key[..9].iter().any(|byte| *byte != 0)
+        && a.encoded_key[..9] == b.encoded_key[..9]
+    {
         return None;
     }
     match compare_bytes() {
@@ -230,14 +243,30 @@ fn build_comparison(
         }
         let a = left.files.get(&path);
         let b = right.files.get(&path);
+        let mut verification_error = None;
         let status = match (a, b) {
             (Some(a), Some(b)) => changed_status(a, b, || {
-                left.storage.same_content_cancellable(
+                let result = left.storage.same_content_cancellable(
                     &a.storage_path,
                     &right.storage,
                     &b.storage_path,
                     || cancel.load(Ordering::Relaxed),
-                )
+                );
+                if let Err(error) = &result {
+                    verification_error = Some(match (a.local, b.local) {
+                        (false, false) => {
+                            "File data is not installed locally in either version.".into()
+                        }
+                        (false, true) => {
+                            "File data is not installed locally in the left version.".into()
+                        }
+                        (true, false) => {
+                            "File data is not installed locally in the right version.".into()
+                        }
+                        (true, true) => error.to_string(),
+                    });
+                }
+                result
             }),
             (Some(_), None) => Some(DiffStatus::Removed),
             (None, Some(_)) => Some(DiffStatus::Added),
@@ -255,6 +284,7 @@ fn build_comparison(
             status,
             left_size: a.map(|file| file.size),
             right_size: b.map(|file| file.size),
+            verification_error,
         });
     }
     check_cancel(cancel)?;
@@ -582,6 +612,8 @@ mod tests {
             size,
             content_key: [content; 16],
             encoded_key: [encoded; 16],
+            span_count: 1,
+            local: true,
         }
     }
 
@@ -612,6 +644,46 @@ mod tests {
     }
 
     #[test]
+    fn static_archive_locations_do_not_change_encoded_identity() {
+        let mut a = file(0, 1, 100);
+        let mut b = file(0, 1, 100);
+        a.encoded_key[9..].fill(2); // Static archive location.
+        b.encoded_key[9..].fill(3); // Dynamic full hash suffix.
+        b.local = false;
+        assert_eq!(
+            changed_status(&a, &b, || panic!("matching keys need no local data")),
+            None
+        );
+        b.encoded_key[0] = 4;
+        assert_eq!(
+            changed_status(&a, &b, || Ok(false)),
+            Some(DiffStatus::Changed)
+        );
+    }
+
+    #[test]
+    fn matching_first_span_does_not_establish_whole_file_equality() {
+        let mut a = file(1, 2, 100);
+        let mut b = file(1, 2, 100);
+        a.span_count = 2;
+        b.span_count = 2;
+        assert_eq!(
+            changed_status(&a, &b, || Ok(false)),
+            Some(DiffStatus::Changed)
+        );
+    }
+
+    #[test]
+    fn zero_encoded_prefix_is_not_a_key_even_with_nonzero_suffix() {
+        let mut a = file(0, 0, 100);
+        a.encoded_key[9..].fill(1);
+        assert_eq!(
+            changed_status(&a, &a, || Ok(false)),
+            Some(DiffStatus::Changed)
+        );
+    }
+
+    #[test]
     fn missing_keys_fall_back_to_bytes_and_report_read_errors() {
         let a = file(0, 0, 100);
         let b = file(0, 0, 80);
@@ -636,18 +708,21 @@ mod tests {
                 status: DiffStatus::Added,
                 left_size: None,
                 right_size: Some(10),
+                verification_error: None,
             },
             DiffEntry {
                 path: "data/b.txt".into(),
                 status: DiffStatus::Changed,
                 left_size: Some(10),
                 right_size: Some(10),
+                verification_error: None,
             },
             DiffEntry {
                 path: "data/c.txt".into(),
                 status: DiffStatus::Changed,
                 left_size: Some(10),
                 right_size: Some(10),
+                verification_error: None,
             },
         ];
         let page = filter_page(&entries, " DATA/ ", "changed", 1, 1);
@@ -743,6 +818,39 @@ mod tests {
         assert!(
             verified > 0,
             "expected readable changed files in distinct versions"
+        );
+        let mut equal_samples = 0;
+        for (path, a) in &comparison.left.files {
+            let Some(b) = comparison.right.files.get(path) else {
+                continue;
+            };
+            if !a.local
+                || !b.local
+                || a.size > 1024 * 1024
+                || b.size > 1024 * 1024
+                || a.span_count != 1
+                || b.span_count != 1
+                || !a.encoded_key[..9].iter().any(|byte| *byte != 0)
+                || a.encoded_key[..9] != b.encoded_key[..9]
+            {
+                continue;
+            }
+            assert!(
+                comparison
+                    .left
+                    .storage
+                    .same_content(&a.storage_path, &comparison.right.storage, &b.storage_path)
+                    .unwrap(),
+                "false key equality: {path}"
+            );
+            equal_samples += 1;
+            if equal_samples == 20 {
+                break;
+            }
+        }
+        assert!(
+            equal_samples > 0,
+            "expected matching keys to verify against bytes"
         );
         let text_path = "data/data/global/excel/skills.txt";
         for side in [&comparison.left, &comparison.right] {
