@@ -25,6 +25,8 @@ pub enum CascError {
     Io(#[from] std::io::Error),
     #[error("file not found in storage: {0}")]
     NotFound(String),
+    #[error("operation cancelled")]
+    Cancelled,
 }
 
 pub type Result<T> = std::result::Result<T, CascError>;
@@ -67,6 +69,11 @@ pub struct Entry {
     pub available: bool,
     /// Per-file locale bitmask (CASC_FIND_DATA.dwLocaleFlags). 0 = locale-neutral.
     pub locale_flags: u32,
+    /// Content and encoded keys supplied by CascLib. An all-zero key is absent.
+    #[serde(skip_serializing)]
+    pub content_key: [u8; 16],
+    #[serde(skip_serializing)]
+    pub encoded_key: [u8; 16],
 }
 
 /// Opened CASC storage handle. RAII-closed on drop.
@@ -233,6 +240,97 @@ impl Storage {
         self.read_limited(file, Some(max_bytes))
     }
 
+    /// Compare decoded contents without loading either file into memory.
+    /// Used when a storage lacks a content key and encoded keys differ.
+    pub fn same_content(&self, path: &str, other: &Storage, other_path: &str) -> Result<bool> {
+        self.same_content_cancellable(path, other, other_path, || false)
+    }
+
+    /// Like [`Self::same_content`], checking cancellation between 64 KiB chunks.
+    pub fn same_content_cancellable(
+        &self,
+        path: &str,
+        other: &Storage,
+        other_path: &str,
+        cancelled: impl Fn() -> bool,
+    ) -> Result<bool> {
+        if cancelled() {
+            return Err(CascError::Cancelled);
+        }
+        fn open(storage: &Storage, path: &str) -> Result<FileGuard> {
+            let name = CString::new(path).map_err(|_| CascError::BadPath(path.to_string()))?;
+            let mut handle = ptr::null_mut();
+            let ok = unsafe {
+                sys::CascOpenFile(
+                    storage.handle,
+                    name.as_ptr().cast(),
+                    sys::CASC_LOCALE_ALL,
+                    sys::CASC_OPEN_BY_NAME,
+                    &mut handle,
+                )
+            };
+            if !sys::ok(ok) || handle.is_null() {
+                return Err(last_err("CascOpenFile"));
+            }
+            Ok(FileGuard(handle))
+        }
+
+        fn read_exact(handle: sys::HANDLE, buf: &mut [u8]) -> Result<()> {
+            let mut offset = 0;
+            while offset < buf.len() {
+                let mut got = 0;
+                let ok = unsafe {
+                    sys::CascReadFile(
+                        handle,
+                        buf[offset..].as_mut_ptr().cast(),
+                        (buf.len() - offset) as u32,
+                        &mut got,
+                    )
+                };
+                if !sys::ok(ok) {
+                    return Err(last_err("CascReadFile"));
+                }
+                if got == 0 {
+                    return Err(CascError::Backend {
+                        op: "unexpected end of CASC file",
+                        code: 0,
+                    });
+                }
+                offset += got as usize;
+            }
+            Ok(())
+        }
+
+        let left = open(self, path)?;
+        let right = open(other, other_path)?;
+        let mut left_size = 0;
+        let mut right_size = 0;
+        if !sys::ok(unsafe { sys::CascGetFileSize64(left.0, &mut left_size) })
+            || !sys::ok(unsafe { sys::CascGetFileSize64(right.0, &mut right_size) })
+        {
+            return Err(last_err("CascGetFileSize64"));
+        }
+        if left_size != right_size {
+            return Ok(false);
+        }
+        let mut left_buf = vec![0; 64 * 1024];
+        let mut right_buf = vec![0; 64 * 1024];
+        let mut remaining = left_size;
+        while remaining > 0 {
+            if cancelled() {
+                return Err(CascError::Cancelled);
+            }
+            let len = remaining.min(left_buf.len() as u64) as usize;
+            read_exact(left.0, &mut left_buf[..len])?;
+            read_exact(right.0, &mut right_buf[..len])?;
+            if left_buf[..len] != right_buf[..len] {
+                return Ok(false);
+            }
+            remaining -= len as u64;
+        }
+        Ok(true)
+    }
+
     /// Shared implementation for [`Self::read`] and [`Self::read_n`].
     /// `max_bytes = None` reads the entire file; `Some(n)` caps at `n`.
     fn read_limited(&self, file: &str, max_bytes: Option<usize>) -> Result<Vec<u8>> {
@@ -341,6 +439,8 @@ fn find_data_to_entry(f: &sys::CASC_FIND_DATA) -> Entry {
         is_synthetic_name: f.NameType != 0, // 0 = CascNameFull
         available: f.bFileAvailable != 0,
         locale_flags: f.dwLocaleFlags,
+        content_key: f.CKey,
+        encoded_key: f.EKey,
     }
 }
 

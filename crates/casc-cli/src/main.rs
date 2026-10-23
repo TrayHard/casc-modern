@@ -846,6 +846,8 @@ mod tests {
             is_synthetic_name: false,
             available: true,
             locale_flags: 0,
+            content_key: [0; 16],
+            encoded_key: [0; 16],
         }
     }
 
